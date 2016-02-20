@@ -1,0 +1,32 @@
+<?php
+// $id$
+
+/**
+ * @file
+ * Provide a simplified interface for generation of uc_coupon.module coupon
+ * codes.
+ */
+
+/**
+ * Implement hook_menu().
+ */
+function cgsi_coupons_menu() {
+	$items = array();
+	$items['admin/store/cgsi_coupons'] = array(
+			'title' => 'Generate Coupon Code',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('cgsi_coupons_form'),
+			// permissions from uc_coupon.module
+			'access arguments' => array('manage store coupons'),
+			'file' => 'cgsi_coupons.admin.inc',
+			'type' => MENU_NORMAL_ITEM,
+	);
+	$items['admin/settings/cgsi_coupons'] = array(
+			'title' => 'CGSI Coupons Configuration',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('cgsi_coupons_settings'),
+			'access arguments' => array('administer site configuration'),
+			'file' => 'cgsi_coupons.admin.inc',
+	);
+	return $items;
+}

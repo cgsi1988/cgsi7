@@ -1,0 +1,5 @@
+name = cgsi_views_import export module
+description = Export objects from CTools
+dependencies[] = views
+package = Chaos tool suite
+core = 7.x

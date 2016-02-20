@@ -1,0 +1,4 @@
+name = CGSI Extras
+description = Hacks/Tweaks
+core = "7.x"
+dependencies[] = uc_store

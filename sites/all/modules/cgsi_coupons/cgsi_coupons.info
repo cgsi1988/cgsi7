@@ -1,0 +1,4 @@
+name = CGSI Coupons
+description = Provide a simplified coupons code generation UI
+dependencies[] = uc_coupon
+core = "7.x"

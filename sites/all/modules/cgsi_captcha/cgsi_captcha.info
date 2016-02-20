@@ -1,0 +1,4 @@
+name = CGSI Captcha
+description = Provides ability to require a captcha before viewing specific pages.
+core = "7.x"
+dependencies[] = captcha

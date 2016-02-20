@@ -1,0 +1,3 @@
+name = CGSI Strings
+description = Simple string overrides for CGSI website.
+core = "7.x"

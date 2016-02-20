@@ -1,0 +1,4 @@
+name = CGSI Donations
+description = Provides basic donation tracking.
+core = "7.x"
+dependencies[] = profile

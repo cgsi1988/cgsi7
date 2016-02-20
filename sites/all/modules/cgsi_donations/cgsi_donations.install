@@ -1,0 +1,67 @@
+<?php
+
+/**
+ * @file
+ * Install/Update functions for cgsi_donations.module
+ */
+
+/**
+ * Implement hook_install().
+ */
+function cgsi_donations_install() {
+	drupal_install_schema('cgsi_donations');
+}
+
+/**
+ * Implement hook_uninistall().
+ */
+function cgsi_donations_uninstall() {
+	drupal_uninstall_schema('cgsi_donations');
+}
+
+/**
+ * Implement hook_schema().
+ */
+function cgsi_donations_schema() {
+	$schema = array();
+	$schema['cgsi_donations_history'] = array(
+			'description' => t('Stores a log of all donations associated with an account.'),
+			'fields' => array(
+					'did' => array(
+							'description' => 'The primary identifier for a donation.',
+							'type' => 'serial',
+							'unsigned' => TRUE,
+							'not null' => TRUE,
+					),
+					'uid' => array(
+							'type' => 'int',
+							'not null' => TRUE,
+							'default' => 0,
+							'descripiton' => 'Users {users}.uid.',
+					),
+					'amount' => array(
+							'type' => 'varchar',
+							'length' => 128,
+							'not null' => TRUE,
+							'default' => '',
+							'descrption' => 'Value of the donation',
+					),
+					'donation_type' => array(
+							'type' => 'varchar',
+							'length' => 128,
+							'not null' => TRUE,
+							'default' => '',
+							'description' => 'Type of donation',
+					),
+					'created' => array(
+							'type' => 'int',
+							'not null' => TRUE,
+							'default' => 0,
+							'description' => 'Timestamp for when this donation was made.',
+					),
+			),
+			'indexes' => array('uid' => array('uid')),
+			'primary key' => array('did'),
+	);
+	return $schema;
+}

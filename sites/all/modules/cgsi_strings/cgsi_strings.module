@@ -1,0 +1,19 @@
+<?php
+// $Id:
+/**
+ * @file
+ * Simple string overrides for the CGSI website. Allows modification of some
+ * strings via t() function that are not themable.
+ */
+
+/**
+ * Implement hook_init().
+ */
+function cgsi_strings_init() {
+	global $conf;
+
+	$conf['locale_custom_strings_en'] = array(
+			// Default output for form element #required => TRUE.
+			'!name field is required.' => '!name is required.',
+	);
+}

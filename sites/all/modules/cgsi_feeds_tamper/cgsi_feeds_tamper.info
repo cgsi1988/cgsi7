@@ -1,0 +1,7 @@
+name = "CGSI Feeds Tamper plugins"
+description = "Adds a Member Number to User ID plugin to Feeds Tamper."
+core = 7.x
+package = Feeds
+version = 7.x-TPC
+dependencies[] = cgsi_member_numbers
+dependencies[] = feeds_tamper

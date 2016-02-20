@@ -1,0 +1,144 @@
+<?php
+
+/**
+ * @file
+ * Custom report generation for GGSI.org website.
+ */
+
+/**
+ * Implement hook_permission().
+ */
+function cgsi_reports_permission() {
+	$perm = array(
+			'access membership reports overview' => array(
+					'title' => t('access membership reports overview'),
+			),
+			'access membership_by_month report' => array(
+					'title' => t('access membership by month report'),
+			),
+			'access membership_mailing report' => array(
+					'title' => t('access membership mailing report'),
+			),
+			'access membership_activity report' => array(
+					'title' => t('access membership activity report'),
+			),
+	);
+
+	return $perm;
+}
+
+/**
+ * Implement hook_menu().
+ */
+function cgsi_reports_menu() {
+	$items = array();
+	$items['admin/user/reports'] = array(
+			'title' => 'Membership Reports',
+			'description' => 'List of available membership reports.',
+			'page callback' => 'cgsi_reports_reports',
+			'access arguments' => array('access membership reports overview'),
+	);
+	$items['admin/user/reports/membership'] = array(
+			'title' => 'Membership by Month',
+			'description' => 'Membership by Month',
+			'page callback' => 'cgsi_reports_membership_by_month',
+			'access arguments' => array('access membership_by_month report'),
+			'file' => 'cgsi_reports.reports.inc',
+	);
+	$items['admin/user/reports/membership/csv'] = array(
+			'title' => 'Membership by Month',
+			'description' => 'Membership by Month',
+			'page callback' => 'cgsi_reports_membership_by_month_csv',
+			'access arguments' => array('access membership_by_month report'),
+			'file' => 'cgsi_reports.reports.inc',
+			'type' => MENU_CALLBACK,
+	);
+	$items['admin/user/reports/membership-mailing'] = array(
+			'title' => 'CGSI Membership Mailing',
+			'description' => 'Total members by state.',
+			'page callback' => 'cgsi_reports_membership_mailing',
+			'access arguments' => array('access membership_mailing report'),
+			'file' => 'cgsi_reports.reports.inc',
+	);
+	$items['admin/user/reports/membership-mailing/csv'] = array(
+			'title' => 'CGSI Membership Mailing',
+			'description' => 'Total members by state.',
+			'page callback' => 'cgsi_reports_membership_mailing_csv',
+			'access arguments' => array('access membership_mailing report'),
+			'file' => 'cgsi_reports.reports.inc',
+			'type' => MENU_CALLBACK,
+	);
+	$items['admin/user/reports/membership-weekly'] = array(
+			'title' => 'Membership Activity',
+			'description' => 'Memebership activity for a supplied date range.',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('cgsi_reports_membership_weekly'),
+			'access arguments' => array('access membership_activity report'),
+			'file' => 'cgsi_reports.reports.inc',
+	);
+	$items['admin/user/reports/membership-weekly/csv'] = array(
+			'title' => 'Weekly Membership Activity',
+			'description' => 'Weekly membership activity.',
+			'page callback' => 'cgsi_reports_membership_weekly_csv',
+			'access arguments' => array('access membership_activity report'),
+			'file' => 'cgsi_reports.reports.inc',
+			'type' => MENU_CALLBACK,
+	);
+	return $items;
+}
+
+function cgsi_reports_reports() {
+	$reports = array(
+			l(t('Membership by Month'), 'admin/user/reports/membership'),
+			l(t('Membership Mailing'), 'admin/user/reports/membership-mailing'),
+			l(t('Membership Activity'), 'admin/user/reports/membership-weekly'),
+	);
+	$output = theme('item_list', array('items' => $reports, 'title' => t('Available Reports')));
+
+	return $output;
+}
+
+
+function cgsi_reports_table_export($title, $header, $rows) {
+	$output = '';
+	$filename = trim(preg_replace('/[^a-zA-Z0-9]\-/is', '', str_replace(' ', '-', $title)));
+
+	if (is_array($header)) {
+		$row_tmp = array();
+		foreach ($header as $value) {
+			$row_tmp[] = is_array($value['data']) ? strip_tags($value['data']) : strip_tags($value);
+		}
+		$output .= '"' . implode('","', $row_tmp) . "\"\n";
+	}
+
+	if (count($rows)) {
+		foreach ($rows as $row) {
+			$row_tmp = array();
+			if (is_array($row)) {
+				foreach ($row as $value) {
+					if (is_array($value)) {
+						$row_tmp[] = strip_tags($value['data']);
+						if (isset($value['colspan'])) {
+							$pad = array_pad(array(), (int) $value['colspan'], '');
+							$row_tmp += $pad;
+						}
+					}
+					else {
+						$row_tmp[] = strip_tags($value);
+					}
+				}
+			}
+			$output .= '"' . implode('","', $row_tmp) . '"' . "\n";
+		}
+	}
+
+	drupal_add_http_header("Content-type", "text/x-csv");
+	drupal_add_http_header("Content-Disposition", "attachment; filename={$filename}");
+	drupal_add_http_header("Pragma", "no-cache");
+	drupal_add_http_header("Pragma", "public"); // IE/Win needs this to work over https://
+	drupal_add_http_header("Cache-Control", "private");
+	drupal_add_http_header("Expires", "0");
+	print $output;
+	module_invoke_all('exit');
+	exit();
+}

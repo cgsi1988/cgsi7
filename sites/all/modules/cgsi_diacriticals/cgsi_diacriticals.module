@@ -1,0 +1,56 @@
+<?php
+/**
+ * @file
+ */
+
+/**
+ * Implement hook_form_FORM_ID_alter().
+ */
+function cgsi_diacriticals_form_alter(&$form, &$form_state, $form_id) {
+	if ($form['#id'] == 'node-form') {
+		// Array of fields to filter.
+		$fields = array(
+				'title',
+				'body',
+				'field_msg_bd_post_author',
+				'field_query_name',
+				'field_query_address',
+				'field_query_city',
+				'field_query_state',
+				'field_query_zip',
+				'field_surname_european_city',
+				'field_surname_european_country',
+				'field_surname_immigration_area',
+				'field_surname_city',
+		);
+
+		foreach (element_children($form) as $field_name) {
+			if (in_array($field_name, $fields)) {
+				$form[$field_name]['#element_validate'] = array('cgsi_diacriticals_validate');
+			}
+		}
+
+		// Always add it to the body field.
+		$form['body_field']['body']['#element_validate'] = array('cgsi_diacriticals_validate');
+	}
+}
+
+/**
+ * Element validation callback. Verify that the FAPI element does not contain
+ * any characters other than alpha-numeric, space, and punct.
+ */
+function cgsi_diacriticals_validate($element, &$form_state) {
+	$pattern = '/[^[a-zA-Z0-9[:punct:][:space:]“”‘’–—]/';
+	if (!empty($element['#value']) && is_string($element['#value'])) {
+		preg_match($pattern, $element['#value'], $matches);
+		if (count($matches) > 0) {
+			form_error($element, t('Please remove all diacritical marks from the %field_name field.', array('%field_name' => $element['#title'])));
+		}
+	}
+	if (!empty($element[0]['value']['#value'])) {
+		preg_match($pattern, $element[0]['value']['#value'], $matches);
+		if (count($matches) > 0) {
+			form_error($element, t('Please remove all diacritical marks from the %field_name field.', array('%field_name' => $element['#title'])));
+		}
+	}
+}

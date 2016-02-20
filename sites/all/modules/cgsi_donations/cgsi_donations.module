@@ -1,0 +1,285 @@
+<?php
+
+/**
+ * @file
+ * Basic donation tracker for CGSI members.
+ */
+
+/**
+ * Implement hook_perm().
+ */
+function cgsi_donations_permission() {
+	$perm = array(
+			'administer cgsi donations' => array(
+					'title' => t('administer donations'),
+			),
+	);
+
+	return $perm;
+}
+
+/**
+ * Implementation of hook_views_api().
+ * @see views.module
+ */
+function cgsi_donations_views_api() {
+	return array('api' => '2.0',  );
+}
+
+/**
+ * Implement hook_menu().
+ */
+function cgsi_donations_menu() {
+	$items = array();
+	$items['user/%user/donations'] = array(
+			'title' => 'Donations',
+			'description' => 'List of all users donations.',
+			'page callback' => 'cgsi_donations_page',
+			'page arguments' => array(1),
+			'access arguments' => array('administer cgsi donations'),
+			'type' => MENU_LOCAL_TASK,
+			'weight' => 10,
+	);
+	$items['user/%user/donations/%'] = array(
+			'title' => 'Delete Donation',
+			'description' => 'Delete a donation.',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('cgsi_donations_confirm_delete', 1, 3),
+			'access arguments' => array('administer cgsi donations'),
+			'type' => MENU_CALLBACK,
+	);
+	return $items;
+}
+
+/**
+ * Implement hook_theme().
+ */
+function cgsi_donations_theme() {
+	return array(
+			'cgsi_donations_table' => array(
+					'arguments' => array('donations' => NULL),
+			),
+	);
+}
+
+/**
+ * Implement hook_user().
+ *
+ * When a user is deleted, remove all their donations.
+ */
+function cgsi_donations_user($op, &$edit, &$account, $category = NULL) {
+	switch ($op) {
+		case 'delete':
+			db_query("DELETE FROM {cgsi_donations_history} WHERE uid = {$account->uid}");
+			break;
+	}
+}
+
+/**
+ * Implement hook_date_api_fields().
+ * @see date_api.module
+ */
+function cgsi_donations_date_api_fields($field) {
+	$values = array(
+			'sql_type' => DATE_UNIX,
+			'tz_handling' => 'site',
+			'timezone_field' => '',
+			'offset_field' => '',
+			'related_fields' => array(),
+			'granularity' => array('year', 'month', 'day', 'hour', 'minute', 'second'),
+	);
+
+	switch ($field) {
+		case 'cgsi_donations_history.created':
+			return $values;
+	}
+}
+
+/**
+ * Menu Callback; Display donation history for a selected user and form for
+ * adding new donation records to the database.
+ */
+function cgsi_donations_page($account) {
+	$title = "My Donations: {$account->name}";
+	drupal_set_title(t($title));
+	$donations = cgsi_donations_user_donations($account->uid);
+  $elements = array('#theme' =>  'cgsi_donations_table',  '#children' => $donations);
+  $output = drupal_render($elements);
+	$donationsForm = drupal_get_form('cgsi_donations_add_form', $account);
+	$output .= drupal_render($donationsForm);
+	return $output;
+}
+
+/**
+ * Form Builder; Form for adding a donation.
+ *
+ * @param $account $form, &$form_state, $form_id
+ *   User object for the account this donation should be added to.
+ */
+function cgsi_donations_add_form($form, &$form_state, $account) {
+	$form =  array();
+	$form['uid'] = array(
+			'#type' => 'value',
+			'#value' => $account->uid,
+	);
+	$form['donation'] = array(
+			'#type' => 'fieldset',
+			'#title' => t('Add a donation'),
+	);
+	$form['donation']['amount'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Amount'),
+			'#size' => 10,
+			'#maxlength' => 128,
+			'#field_prefix' => t('$'),
+	);
+	$form['donation']['donation_type'] = array(
+			'#type' => 'select',
+			'#title' => t('Type'),
+			'#options' => array('Sponsor donation' => t('Sponsor donation'), 'Library donation' => t('Library donation')),
+	);
+	$form['donation']['submit'] = array(
+			'#type' => 'submit',
+			'#value' => t('Add donation'),
+	);
+	
+	// Add user_register_submit as a callback for this form. This means we are still
+	// calling all the hooks, and validation routines that drupal would normally call
+	// when registering a new user.
+	$form['#validate'] = array('cgsi_donations_add_form_validate');
+	$form['#submit'] = array('cgsi_donations_add_form_submit');
+	
+	return $form;
+}
+
+/**
+ * Form Builder; Validation callback for cgsi_donations_add_form().
+ */
+function cgsi_donations_add_form_validate($form, &$form_state) {
+	if (!isset($form_state['values']['amount']) || empty($form_state['values']['amount'])) {
+		form_set_error('amount', t('Please enter a donation amount.'));
+	}
+
+	if (!is_numeric($form_state['values']['amount'])) {
+		form_set_error('amount', t('Donation amount must be a numeric value.'));
+	}
+}
+
+/**
+ * Form Builder; Submit callback for cgsi_dontations_add_form();
+ */
+function cgsi_donations_add_form_submit($form, &$form_state) {
+	if (cgsi_donations_log_donation($form_state['values']['uid'], $form_state['values']['donation_type'], $form_state['values']['amount'])) {
+		drupal_set_message(t('The donation has been added.'));
+	}
+}
+
+/**
+ * Form Builder; Confirm deletion of a donation.
+ */
+function cgsi_donations_confirm_delete($form, &$form_state, $form_id = '') {
+	$account = $form_state['build_info']['args'][0];
+	$donation_id = $form_state['build_info']['args'][1];
+	$form = array();
+	$form['#account'] = $account;
+	$form['#donation_id'] = $donation_id;
+	return confirm_form(
+			$form,
+			t('Are you sure you want to delete this donation?'),
+			'user/' . $account->uid . '/donations',
+			t('This action cannot be undone.'),
+			t('Delete'),
+			t('Cancel'),
+			'cgsi_donations_confirm_delete'
+	);
+}
+
+/**
+ * Submit calblack for cgsi_donations_confirm_delete().
+ */
+function cgsi_donations_confirm_delete_submit($form, &$form_state) {
+	$account = $form['#account'];
+	$donation_id = $form['#donation_id'];
+	cgsi_donations_delete_donation($donation_id);
+	drupal_set_message(t('The donation has been deleted.'));
+	$form_state['redirect'] = 'user/' . $account->uid . '/donations';
+}
+
+/**
+ * Add a donation to the database.
+ *
+ * @param $uid
+ *   UID of the user that made the donation.
+ * @param $amount
+ *   (float) Amount of the donation.
+ */
+function cgsi_donations_log_donation($uid, $type, $amount) {
+	$amount = floatval(ereg_replace('[^0-9\.]*', '', $amount));
+	$donation = array(
+			'uid' => $uid,
+			'amount' => $amount,
+			'donation_type' => $type,
+			'created' => time(),
+	);
+	return drupal_write_record('cgsi_donations_history', $donation);
+}
+
+/**
+ * Delete a donation from the database.
+ *
+ * @param $donation_id
+ *   Unique ID of the donation to delete.
+ *
+ * @return
+ *   TRUE on success, FALSE if donation could not be deleted.
+ */
+function cgsi_donations_delete_donation($donation_id) {	
+	$delete = db_delete('cgsi_donations_history')->condition('did', $donation_id)->execute();
+	if ($delete) {
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/**
+ * Retrieve all of the specified user's donations.
+ *
+ * @param $uid
+ *   UID of the user to retrieve donations for.
+ * @return
+ *   An array of a users entire donation history.
+ */
+function cgsi_donations_user_donations($uid) {
+	$donations = array();
+	$results = db_query("SELECT did, amount, donation_type, created FROM {cgsi_donations_history} WHERE uid = $uid ORDER BY created DESC");
+	foreach ($results  as $row) {
+		$donations[] = array(
+				'amount' => t('$') . check_plain($row->amount),
+				'donation_type' => check_plain($row->donation_type),
+				'date' => $row->created,
+				'links' => l(t('delete'), 'user/'. $uid . '/donations/' . $row->did )
+		);
+	}
+	return $donations;
+}
+
+/**
+ * Theme a list of donations.
+ */
+function theme_cgsi_donations_table($variables) {
+	$donations = $variables[""]["#children"];
+	if (empty($donations)) {
+		$rows = array(array('No donations', ''));
+	}
+	else {
+		$rows = array();
+		foreach ($donations as $donation) {
+			$rows[] = array($donation['amount'],  $donation['donation_type'], format_date($donation['date'], 'custom', 'm/d/Y'), $donation['links']);
+		}
+	}
+	$header = array(t('Amount'), t('Type'), t('Date'), '');
+	$output = theme('table',
+			array('header' => $header,
+					'rows' => $rows));
+	return $output;
+}

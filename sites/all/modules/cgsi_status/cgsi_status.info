@@ -1,0 +1,4 @@
+name = CGSI Status
+description = Provides a custom status field for user accounts with status change history.
+core = 7.x
+files[] = cgsi_status_views_handler_filter.inc

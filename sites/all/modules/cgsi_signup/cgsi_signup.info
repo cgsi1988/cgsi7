@@ -1,0 +1,9 @@
+name = CGSI Signup
+description = Provides custom member registration workflow.
+core = "7.x"
+dependencies[] = cgsi_donations
+dependencies[] = cgsi_password
+dependencies[] = cgsi_status
+dependencies[] = uc_roles_history
+dependencies[] = uc_roles
+dependencies[] = profile

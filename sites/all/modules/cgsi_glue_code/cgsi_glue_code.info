@@ -1,0 +1,4 @@
+name = cgsi.org glue code
+description = site-specific custom code for cgsi.org
+core = "7.x"
+dependencies[] = cgsiup

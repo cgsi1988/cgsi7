@@ -1,0 +1,20 @@
+<?php
+// $id$
+/**
+ * @cgsi_extras.install
+ */
+
+/**
+ * Implement hook_install().
+ */
+function cgsi_extras_install() {
+  // Disable sending of "Welcome" message to new users.
+  variable_set('user_mail_register_no_approval_required_notify', 0);
+}
+
+/**
+ * Implement hook_uninstall().
+ */
+function cgsi_extras_uninstall() {
+  variable_del('user_mail_register_no_approval_required_notify');
+}

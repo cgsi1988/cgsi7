@@ -1,0 +1,89 @@
+<?php
+/**
+ * @file
+ * Installation and udpate hooks.
+ */
+
+/**
+ * Implement hook_schema().
+ */
+function cgsi_signup_schema() {
+	$schema = array();
+	$schema['cgsi_signup'] = array(
+			'description' => t("Stores temporary information when signing up new users."),
+			'fields' => array(
+					'sess_id' => array(
+							'type' => 'varchar',
+							'length' => 128,
+							'not null' => TRUE,
+							'default' => '',
+							'descripiton' => "Session ID.",
+					),
+					'product_id' => array(
+							'type' => 'int',
+							'size' => 10,
+							'unsigned' => TRUE,
+					),
+					'data' => array(
+							'description' => "The stored data as a serialized array.",
+							'type' => 'text',
+							'not null' => TRUE,
+							'default' => '',
+							'size' => 'big',
+					),
+					'created' => array(
+							'description' => "A Unix timestamp indicating when this record was created.",
+							'type' => 'int',
+							'not null' => TRUE,
+							'default' => 0,
+					),
+			),
+			'indexes' => array('sess_id' => array('sess_id')),
+	);
+	return $schema;
+}
+
+/**
+ * Implement hook_install().
+ */
+function cgsi_signup_install() {
+	drupal_install_schema('cgsi_signup');
+}
+
+/**
+ * Implement hook_uninistall().
+ */
+function cgsi_signup_uninstall() {
+	drupal_uninstall_schema('cgsi_signup');
+}
+
+/**
+ * Add new table for storing data during signup process.
+ */
+function cgsi_signup_update_6001() {
+	$ret = array();
+	$schema = cgsi_signup_schema();
+	if (!db_table_exists('cgsi_signup')) {
+		db_create_table($ret, 'cgsi_signup', $schema['cgsi_signup']);
+	}
+	return $ret;
+}
+
+/**
+ * Module needs to be called lastish so it can do the appropriate
+ * things to the $user object.
+ */
+function cgsi_signup_update_6002() {
+	$ret = array();
+	$ret[] = update_sql("UPDATE {system} SET weight = 5 WHERE name = 'cgsi_signup'");
+	return $ret;
+}
+
+/**
+ * Add column for tracking associated product id.
+ */
+function cgsi_signup_update_6003() {
+	$ret = array();
+	$ret[] = update_sql("ALTER TABLE {cgsi_signup} ADD product_id int");
+	return $ret;
+}

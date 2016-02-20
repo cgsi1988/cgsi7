@@ -1,0 +1,103 @@
+<?php
+// $Id;
+
+/**
+ * @file
+ */
+
+
+/**
+ * Implementation of hook_perm().
+ */
+function cgsi_captcha_perm() {
+	return array('bypass cgsi_captcha captcha');
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function cgsi_captcha_menu() {
+	$items = array();
+	$items['admin/settings/cgsi_captcha'] = array(
+			'title' => 'CGSI Captcha',
+			'description' => 'Configure which pages require captcha to view.',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('cgsi_captcha_admin_settings'),
+			'access arguments' => array('administer site configuration'),
+			'file' => 'cgsi_captcha.admin.inc',
+	);
+	return $items;
+}
+
+/**
+ * Implementation of hook_form_alter().
+ */
+//function cgsi_captcha_form_alter(&$form, $form_state, $form_id) {
+function cgsi_captcha_form_views_exposed_form_alter(&$form, $form_state) {
+	global $user;
+	$bypass = user_access('bypass cgsi_captcha captcha');
+	if (!$bypass)
+	{
+		$view = $form_state['view'];
+		$protected_views = variable_get('cgsi_captcha_views', array());
+
+		if (in_array($view->name . '-' . $view->current_display, $protected_views)) {
+			// Protect this form with a captcha
+			$form['captcha'] = array(
+					'#type' => 'captcha',
+					'#captcha_type' => variable_get('cgsi_captcha_captcha_type', 'default'),
+					'#process' => array('cgsi_captcha_element_process'),
+					'#weight' => -1,
+			);
+		}
+	}
+}
+
+/**
+ * Wrapper for captcha_validate().
+ *
+ */
+function cgsi_captcha_validate($element, $form_state) { //debug_print_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+	// bypass validation if one of the sort links was clicked
+	$captcha_response = $_GET['captcha_response'];
+	$bypass = isset($captcha_response);
+	if (!$bypass) captcha_validate($element, $form_state);
+}
+/**
+ * Wrapper for captcha_process().
+ *
+ * The default captcha_process() function assumes that if you've solved a captcha for a specific $form_id
+ * that you do not need to solve it again. However, we want to force the user to solve a captcha every time
+ * they fill out the views_exposed_form form so we set $complete_form['form_id']['#value'] = NULL
+ * which makes captcha_process() give us a new un-solved captcha every time the form is shown.
+ */
+//function cgsi_captcha_process($element, $edit, &$form_state, $complete_form) {
+function cgsi_captcha_element_process($element, &$form_state, $complete_form) {
+
+	// 	$csid = $form_state['input']['captcha_sid'];
+	// 	$token = $form_state['input']['captcha_token'];
+
+	$result = captcha_element_process($element, $form_state, $complete_form);
+	// add custom wrapper around captcha_validate
+	$result['#element_validate'] = array('cgsi_captcha_validate');
+	//$captcha_info = $form_state['captcha_info'];
+	// 	$captcha_info = $result['#captcha_info'];
+	// 	$solution = $captcha_info['solution'];
+	// 	$captcha_sid = $captcha_info['captcha_sid'];
+
+	// 	$captcha_sid = $result['captcha_sid']['#value'];
+	// 	$captcha_token = $result['captcha_token']['#value'];
+
+	//$query = "UPDATE {captcha_sessions} SET status = 0 , token = '" . $captcha_token . "' WHERE csid = $captcha_sid";
+	//$query = "UPDATE {captcha_sessions} SET status = 0 WHERE csid = $csid";
+	//db_query($query);
+	//$element['#post']['captcha_sid'] = NULL;
+
+	//$complete_form['form_id']['#value'] = NULL;
+
+
+	//$complete_form['#form_id']= NULL;
+	//$form_state['captcha_info']['captcha_sid'] = NULL;
+
+	return $result;
+}

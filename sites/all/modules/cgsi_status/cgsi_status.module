@@ -1,0 +1,327 @@
+<?php
+// $id$
+
+/**
+ * @file
+ * Provides a custom status field for user accounts and keeps a history of all
+ * status changes made on an account.
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function cgsi_status_permission() {
+	return array(
+			'administer cgsi_status status' => array(
+					'title' => t('administer cgsi_status status'),
+					'description' => t('TODO Add a description for \'administer cgsi_status status\''),
+			),
+			'view cgsi_status history' => array(
+					'title' => t('view cgsi_status history'),
+					'description' => t('TODO Add a description for \'view cgsi_status history\''),
+			),
+	);
+}
+
+/**
+ * Implements hook_views_api().
+ * @see views.module
+ */
+function cgsi_status_views_api() {
+	return array(
+			'api' => '2.0',
+	);
+}
+
+/**
+ * Implements hook_uc_roles_new().
+ * @see uc_roles.module
+ */
+function cgsi_status_uc_roles_new($account, $rid, $timestamp) {
+	cgsi_status_set_status($account, 'active');
+}
+
+/**
+ * Implements hook_uc_roles_renew().
+ * @see uc_roles.module
+ */
+function cgsi_status_uc_roles_renew($account, $rid, $timestamp) {
+	cgsi_status_set_status($account, 'active');
+}
+
+/**
+ * Implements hook_uc_roles_revoke().
+ * @see uc_roles.module
+ */
+function cgsi_status_uc_roles_revoke($account, $rid) {
+	cgsi_status_set_status($account, 'inactive');
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Take over the account status form field on the user/edit form and replace
+ * it with our own.
+ */
+function cgsi_status_form_user_profile_form_alter(&$form, $form_state) {
+	// Only concerned with the 'Account Information' section of the user profile.
+	// This check needs to be updated if the profile category name is updated.
+	$account = $form['#user'];
+	cgsi_status_account_status($account);
+
+	if ($form['#user_category'] == 'account') {
+		// Add some help text to drupal's status field.
+		$form['account']['status']['#description'] = t('Memers set as blocked will not be able to login to the site.');
+
+		$form['cgsi_status_fieldset'] = array(
+				'#type' => 'fieldset',
+				'#title' => t('Account status'),
+				'#access' => (user_access('administer cgsi_status status') || user_access('view cgsi_status history')),
+		);
+
+		$form['cgsi_status_fieldset']['cgsi_status'] = array(
+				'#type' => 'select',
+				'#title' => t('Current status'),
+				'#options' => _cgsi_status_status_array(),
+				'#default_value' => (isset($account->cgsi_status)) ? $account->cgsi_status : '',
+		);
+
+		$form['cgsi_status_fieldset']['cgsi_status_submit'] = array(
+				'#type' => 'submit',
+				'#value' => t('Update status'),
+				'#access' => user_access('administer cgsi_status status'),
+				'#submit' => array('cgsi_status_update_submit'),
+		);
+
+		// Display the account history.
+		if (user_access('view cgsi_status history')) {
+			$form['cgsi_status_fieldset']['cgsi_status_history'] = array(
+					'#type' => 'fieldset',
+					'#title' => t('Status history'),
+					'#description' => t('Complete status history for this account.'),
+					'#collapsible' => TRUE,
+					'#collapsed' => TRUE,
+					'#access' => (user_access('view cgsi_status history')),
+			);
+
+			$history = cgsi_status_account_history($account);
+			$markup = theme('table', array('header' => array(t('Status'), t('Date')), 'rows' => $history));
+			$form['cgsi_status_fieldset']['cgsi_status_history']['history'] = array(
+					'#markup' => $markup,
+			);
+		}
+	}
+}
+
+/**
+ * Implements hook_user_presave().
+ */
+function cgsi_status_user_presave(&$edit, $account, $category) {
+	if (!user_access('administer users') || $category != 'account') {
+		return;
+	}
+
+	// Check if any temporary role actions were taken.
+	if (isset($edit['table'])) {
+		foreach ((array)$edit['table'] as $rid => $value) {
+			// Remove this expiration.
+			if (!$value['remove']) {
+				if ($value['qty'] && $edit['roles'][$rid]) {
+					cgsi_status_set_status($account, 'active');
+				}
+			}
+		}
+	}
+	
+	// Check for new role.
+	if ($edit['new_role_add']) cgsi_status_set_status($account, 'active');
+}
+
+/**
+ * Validation callback for update status form.
+ */
+function cgsi_status_update_validate($form, &$form_state) {
+	$statuses = _cgsi_status_status_array();
+	if (!isset($statuses[$form_state['values']['cgsi_status']])) {
+		form_set_error('cgsi_status', t('Invalid status.'));
+	}
+}
+
+/**
+ * Submit handler for 'Update status'.
+ */
+function cgsi_status_update_submit($form, &$form_state) {
+	$account = $form_state['user'];
+	cgsi_status_set_status($account, $form_state['values']['cgsi_status']);
+	drupal_set_message(t('Status updated'));
+}
+
+/**
+ * Set the current status of an account and add a record to the account's
+ * status history.
+ *
+ * @param $account
+ *   Drupal user object.
+ * @param $status
+ *   The status to set on the account. Available status options can be found
+ *   in _cgsi_status_status_array().
+ */
+function cgsi_status_set_status($account, $status = null) {
+	$new_status = (object) array(
+			'uid' => $account->uid,
+			'status' => $status,
+			'modified' => REQUEST_TIME,
+	);
+
+	db_delete('cgsi_status')->condition('uid', $account->uid)->execute();
+
+	if ($status != null) {
+		drupal_write_record('cgsi_status', $new_status);
+		drupal_write_record('cgsi_status_history', $new_status);
+	}
+}
+
+/**
+ * Look up the current status for an account.
+ *
+ * @param $account
+ *   User object
+ * @return
+ *   Passed in user object with $account->cgsi_status field set to the accounts
+ *   current status.
+ */
+function cgsi_status_account_status(&$account) {
+	$account->cgsi_status = db_query('SELECT status FROM {cgsi_status} WHERE uid = :uid LIMIT 1', array(':uid' => $account->uid))->fetchField();
+}
+
+/**
+ * Implements hook_user_load().
+ */
+function cgsi_status_user_load($users) {
+	foreach ($users as $account){
+		cgsi_status_account_status($account);
+		cgsi_status_reset($account);
+	}
+}
+
+/**
+ * Implements hook_user_update().
+ */
+function cgsi_status_user_update(&$edit, $account, $category) {
+	if (!user_access('administer users') || $category != 'account') {
+		return;
+	}
+
+	cgsi_status_reset($account);
+}
+
+function cgsi_status_reset($account) {
+	// if status is not yet set, but role is defined, default status to active
+	if (!isset($account->cgsi_status) || !$account->cgsi_status || $account->cgsi_status == 'null') {
+		if (isset($account->roles)){
+			foreach ($account->roles as $role){
+				if (is_numeric($role))
+				{
+					$user_role = user_role_load($role);
+					$role_name = $user_role->name;
+				}
+				if ($role === 'paid member' || $role_name === 'paid member') {
+					cgsi_status_set_status($account, 'active');
+				}
+			}
+		}
+		// if status is set, but paid member has been removed, unset status
+	} else {
+		if (isset($account->roles)){
+			foreach ($account->roles as $role){
+				if (is_numeric($role))
+				{
+					$user_role = user_role_load($role);
+					$role_name = $user_role->name;
+				}
+				if ($role === 'paid member' || $role_name === 'paid member') {
+					return;
+				}
+			}
+			cgsi_status_set_status($account, null);
+		}
+	}
+}
+
+/**
+ * Implements hook_cron().
+ */
+function cgsi_status_cron() {
+	$query = db_select('users', 'u')	->fields('u');
+	$result = $query->execute();
+	foreach ($result as $user) {
+		$account = user_load($user->uid);
+		cgsi_status_reset($account);
+	}
+}
+
+/**
+ * Implements hook_user_cancel().
+ */
+function cgsi_status_user_cancel($edit, $account, $method) {
+	if (TRUE) {
+		// TODO Please review the conversion of this statement to the D7 database API syntax.
+		/* db_query('DELETE FROM {cgsi_status} WHERE uid = %d', $account->uid) */
+		db_delete('cgsi_status')
+		->condition('uid', $account->uid)
+		->execute();
+		// TODO Please review the conversion of this statement to the D7 database API syntax.
+		/* db_query('DELETE FROM {cgsi_status_history} WHERE uid = %d', $account->uid) */
+		db_delete('cgsi_status_history')
+		->condition('uid', $account->uid)
+		->execute();
+	}
+}
+
+/**
+ * Implements hook_user().
+ */
+function cgsi_status_user_OLD($op, &$edit, &$account, $category = NULL) {
+}
+
+/**
+ * Look up the complete status history for an account.
+ *
+ * @param $account
+ *   User object to look up history for.
+ *
+ * @return
+ *   An associative array of the account's history. The array key is a timestamp
+ *   and the value is the status machine-name from that timestamp.
+ */
+function cgsi_status_account_history($account) {
+	$statuses = _cgsi_status_status_array();
+	$results = db_query('SELECT status, modified FROM {cgsi_status_history} WHERE uid = :uid ORDER BY modified DESC', array(':uid' => $account->uid));
+	$history = array();
+	foreach ($results as $row) {
+		$history[$row->modified] = array(
+				'status' => $statuses[$row->status],
+				'date' => format_date($row->modified),
+		);
+	}
+	return $history;
+}
+
+/**
+ * Helper function returns an array of all possible status codes for an
+ * account.
+ *
+ * @return
+ *   An associative array where the key is a unique machine-readable ID
+ *   and the value is the human readable name of the status.
+ */
+function _cgsi_status_status_array() {
+	return array(
+			'null' => t('(Choose one)'),
+			'hold' => t('Hold'),
+			'active' => t('Active'),
+			'inactive' => t('Inactive'),
+			'inactive_death' => t('Inactive - Death'),
+			'inactive_cancel' => t('Inactive - Cancel'),
+	);
+}

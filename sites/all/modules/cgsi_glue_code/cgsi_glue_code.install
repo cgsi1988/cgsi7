@@ -1,0 +1,162 @@
+<?php
+// $id$
+/**
+ * Install, update and unintall funcitons for cgsi_glue_code module
+ */
+
+/**
+ * Enable the cgsiup module to do 6.x to 7.x-specific site-building.
+ */
+function cgsi_update_7001() {
+	module_enable(array('cgsiup'));
+}
+
+/**
+ * Enable data-related modules which the site needs.
+ */
+function cgsi_update_7002() {
+	$modules = array(
+			'ctools', // possibly handled by drush site-upgrade
+			'content_migrate',
+			'contextual',
+			'file',
+			'computed_field',
+			'link',
+			'pathauto',
+			'token',
+			'field_sql_storage',
+			'views',
+			'field_ui',
+			'cck',
+			'date',
+			'date_views',
+	);
+	module_enable($modules);
+}
+
+/** Enable and set the Stark theme and set Seven as admin theme.
+ * Queries adapted from sytem.admin.inc system_theme_default() and friends.
+ *
+ * Note:  The Drupal 6 themes do not exist in the system table; they have been
+ * cleamed up by Drupal's upgrade so we do not have to delete them ourselves.
+ */
+
+function cgsi_update_7003() {
+	$theme = 'stark';
+	// Disable Garland.
+	theme_disable(array('garland'));
+	// Enable our chosen theme.
+	theme_enable(array($theme));
+	variable_set('theme_default', $theme);
+	variable_set('admin_theme', 'seven');
+}
+
+
+
+/**
+ * Upgrade fields.
+ */
+function cgsi_update_7005() {
+	$fields = array(
+			'field_cr_birth_day',
+			'field_cr_birth_month',
+			'field_cr_birth_year',
+			'field_cr_church_name',
+			'field_cr_city',
+			'field_cr_given_name',
+			'field_cr_notes',
+			'field_cr_record_computed',
+			'field_cr_record_day',
+			'field_cr_record_month',
+			'field_cr_record_type',
+			'field_cr_record_year',
+			'field_cr_record_year_sortable',
+			'field_cr_spouse_given_name',
+			'field_cr_spouse_surname',
+			'field_cr_vol',
+			'field_event_date',
+			'field_event_date_string',
+			'field_image_cache',
+			'field_lli_author',
+			'field_lli_insure',
+			'field_lli_item_num',
+			'field_lli_mailing_cost',
+			'field_lli_multiple_costs',
+			'field_msg_bd_post_author',
+			'field_msg_bd_post_email',
+			'field_news_image',
+			'field_ordinal',
+			'field_page_image',
+			'field_psr_age',
+			'field_psr_alternate_surname',
+			'field_psr_arrival_city',
+			'field_psr_arrival_date',
+			'field_psr_arrival_date_computed',
+			'field_psr_arrival_year',
+			'field_psr_book_num',
+			'field_psr_departure_city',
+			'field_psr_departure_country',
+			'field_psr_destination',
+			'field_psr_first_name',
+			'field_psr_notes',
+			'field_psr_other_family_members',
+			'field_psr_record_number',
+			'field_psr_ship',
+			'field_public_lib_item_author',
+			'field_public_lib_item_number',
+			'field_public_lib_searchable',
+			'field_query_address',
+			'field_query_city',
+			'field_query_email',
+			'field_query_name',
+			'field_query_state',
+			'field_query_zip',
+			'field_surname_comments',
+			'field_surname_european_city',
+			'field_surname_european_country',
+			'field_surname_immigration_area',
+	);
+
+	module_load_include('inc', 'content-migrate', 'includes/content_migrate.admin');
+
+	// First upgrade the structure for each field (this is the drush approach).
+	$context = array();
+	foreach ($fields as $field_name) {
+		_content_migrate_batch_process_create_fields($field_name, $context);
+	}
+
+	// Then migrate the data for each field.
+	$context = array(
+			'sandbox' => array(),
+	);
+	foreach ($fields as $field_name) {
+		_content_migrate_batch_process_migrate_data($field_name, $context);
+	}
+}
+
+/**
+ * Implement hook_install().
+ */
+function cgsi_glue_code_install() {
+	// Remove all traces of unwanted modules from Drupal 6 and earlier.
+	cgsi_update_7001();
+
+	// Disable core modules we no longer want to use.
+	cgsi_update_7002();
+
+	// Enable and set the Start themes and set Seven as admin theme.
+	cgsi_update_7003();
+
+	// Enable essential modules.
+	cgsi_update_7004();
+
+	// Upgrade fields
+	cgsi_update_7005();
+}
+
+/**
+ * Implement hook_uninstall().
+ */
+function cgsi_glue_code_uninstall() {
+	variable_del('user_mail_register_no_approval_required_notify');
+}

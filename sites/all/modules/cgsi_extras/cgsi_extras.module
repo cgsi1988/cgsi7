@@ -1,0 +1,496 @@
+<?php
+
+// $Id;
+/**
+ * @file
+ * Minor hacks and tweaks specific to the CGSI website.
+ */
+
+
+/**
+ * Implements hook_user_presave().
+ */
+// function cgsi_extras_user_presave(&$edit, $account, $category) {
+//     if (!user_access('administer users') || $category != 'account') {
+//         return;
+//     }
+
+//     if (isset($edit['table'])) {
+//         foreach ((array)$edit['table'] as $rid => $value) {
+//             if (!$value['remove']) {
+//                 $revisedExpiration = _cgsi_extras_standardize_role_expirations();
+//             }
+//         }
+//     }
+
+//     if ($revisedExpiration) {
+//         $message = t("!user's expiration date has been standardized. It will expire on %date.", array(
+//                         '!user' => theme('username', array(
+//                                         'account' => $account,
+//                                         'name' => check_plain(format_username($account)),
+//                                         'link_path' => 'user/' . $account->uid,
+		//                         )),
+		//                         '%date' => format_date($revisedExpiration, 'short'),
+		//         ));
+
+//         drupal_set_message($message);
+//     }
+// }
+
+/**
+ * Menu callback; Redirect a user to the edit form for their 'Member
+* Information' profile fields.
+*/
+function cgsi_extras_member_information() {
+	global $user;
+	if ($user->uid != 0) {
+		drupal_goto('user/' . $user->uid . '/edit/Member Information');
+	}
+	else {
+		drupal_access_denied();
+	}
+}
+
+/**
+ * Helper for hook_block() implementation.
+ *
+ * Display the currently logged in users account number, membership level and
+ * expiration date.
+ */
+function _cgsi_extras_user_account_block() {
+	if (arg(0) == 'user' && is_numeric(arg(1))) {
+		$account = user_load(arg(1));
+
+		// Figure out if this account has any expiring roles.
+		$result = db_query("SELECT * FROM {uc_roles_expirations} WHERE uid = :uid",	array(':uid' => $account->uid));
+		foreach ($result as $expiration) {
+			// Subtract 10 days from the members expiration date, this is how we
+			// simulate a grace period for account expiration.
+			// @see uc_roles.module additions where we are adding 10 days to
+			// the account's real expiration date before saving it to the DB.
+			$membership_expiration = _uc_roles_reminders_expiration_before_grace($expiration);
+		}
+
+		$output = '<p class="account-details">' . check_plain($account->profile_membership_level) . ' Membership';
+		if ($account->profile_class_one_postage == 1) {
+			$output .= ' with 1<sup>st</sup> Class postage';
+		}
+		$output .= '<br/><strong>Member number:</strong> ' . check_plain($account->profile_member_number) . '<br/>';
+		$output .= '<strong>Membership expiration date:</strong> ' . $membership_expiration . ' ' . l(t('renew now'), 'signup') . '</p>';
+		return $output;
+	}
+}
+
+/**
+ * Implement hook_menu().
+ */
+function cgsi_extras_menu() {
+	$items = array();
+	$items['user/surnames'] = array(
+			'title' => 'My Surnames',
+			'description' => 'View my Surnames',
+			'page callback' => 'cgsi_extras_my_surnames',
+			'access arguments' => array('access content'),
+			'type' => MENU_NORMAL_ITEM,
+	);
+	$items['user/edit/member-information'] = array(
+			'title' => 'Member Information',
+			'page callback' => 'cgsi_extras_member_information',
+			'access callback' => TRUE,
+			'type' => MENU_CALLBACK,
+	);
+	return $items;
+}
+
+/**
+ * Implement hook_menu_alter().
+ */
+function cgsi_extras_menu_alter(&$items) {
+	// Change menu.title for user/1/edit page to "Login Information" instead of
+	// "Account"
+	$items['user/%user_category/edit/account']['title'] = t('Login Information');
+
+	// Change 'People' to 'Member';
+	$items['admin/people']['title'] = t('Member management');
+	$items['admin/user/user']['title'] = t('Members');
+	$items['admin/people/create']['title'] = t('Add Member');
+
+	// Make search/user only available to people with 'administer users'.
+	$items['search/user']['access callback'] = 'user_access';
+	$items['search/user']['access arguments'] = array('administer users');
+}
+
+/**
+ * Implement hook_block_view().
+ */
+function cgsi_extras_block_view($delta = '') {
+	$block = array('content' => _cgsi_extras_user_account_block());
+	return $block;
+}
+
+/**
+ * Implement hook_block_info().
+ */
+function cgsi_extras_block_info() {
+	$blocks['membership_data'] = array(
+			'info' => t('User account number & expiration date'),
+			'weight' => 0,
+			'status' => 0,
+			'region' => NULL,
+	);
+	return $blocks;
+}
+
+/**
+ * Implementation of hook_views_pre_execute().
+ * @see views.module
+ */
+function cgsi_extras_views_pre_execute(&$view) {
+	// This forces the COUNT query to get run for all views, so we always
+	// have $view->total_rows available, even for non-pager queries.
+	// Needed so that Church/Ship databases can display a note if there are more
+	// than 200 results for a given query.
+	$view->get_total_rows = TRUE;
+}
+
+/**
+ * Implement hook_FORM_ID_alter().
+ *
+ * Changes the titles and descriptions for a a couple of fields.
+ */
+function cgsi_extras_form_uc_cart_checkout_form_alter(&$form, &$form_state) {
+	// Alter title of shipping/delivery address postal code fields.
+	// HACK: moved to uc_store.module  $form['panes']['delivery']['delivery_postal_code']['#title'] = $form['panes']['billing']['billing_postal_code']['#title'] = t('Zip/Postal Code');
+
+	// Change title of coupon code fielset.
+	$form['panes']['coupon']['#title'] = t('Gift Certificate');
+	$form['panes']['coupon']['code']['#title'] = t('Gift certificate code');
+
+	$form['panes']['billing']['#description'] .= ' ' . t('For foreign delivery or sales, see our policy in <a href="!url">About the Store</a>', array('!url' => url('store')));
+
+	$form['panes']['payment']['payment_method']['#title_display'] = 'before';
+	$form['panes']['payment']['payment_method']['#title'] .= '<br/>Payable in US funds only';
+}
+/**
+ * Implement hook_form_FORM_ID_alter().
+ *
+ * Change the #description text for the user account e-mail field.
+ */
+function cgsi_extras_form_user_register_form_alter(&$form, &$form_state) {
+	$form['account']['mail']['#description'] = t('A valid e-mail address. All e-mails from CGSI will be sent to this address. The e-mail address is not made public and will only be used if you wish to receive a new password or wish to receive certain news or notifications by e-mail.');
+	// If the current user is an admin insert a #submit callback for the form.
+	if (user_access('administer users')) {
+		$form['#submit'] = array_merge($form['#submit'], array('cgsi_extras_user_register_callback'));
+	}
+}
+
+function cgsi_extras_user_register_callback($form, &$form_state) {
+	$user = $form_state['user'];
+	drupal_set_message(t('Edit this user\'s !link', array('!link' => l('Account Information.', 'user/' . $user->uid . '/edit/Account Information'))));
+}
+
+/**
+ * Implement hook_form_FORM_ID_alter().
+ */
+function cgsi_extras_form_surname_node_form_alter(&$form, &$form_state) {
+	// Add an additional submit handler to the node.type = surname form.
+	$form['actions']['submit']['#submit'][] = 'cgsi_extras_surname_node_form_submit';
+}
+
+function cgsi_extras_surname_node_form_submit(&$form, &$form_state) {
+	global $user;
+	drupal_set_message ( l ( 'See all of my surnames', 'user/' . $user->uid . '/surnames' ) );
+	//$form_state ['redirect'] = '';
+	
+	// If this is a new surname node, send the user back to the add a surname page
+	// after saving.
+	if (!empty ( $form_state ['nid'] )) {
+		unset($_GET['destination']);
+		$form_state ['redirect'] = 'node/add/surname';
+		// alternatively, you could redirect back to the form using: $form_state['redirect'] = sprintf('node/%d/edit', $form_state['nid']);
+		// if you are really, really determined to force the redirect, even if a destination has been set in the url, add this: unset($_GET['destination']);
+		// you could also add a message (this is in addition to whatever message is produced by the nodeapi function): drupal_set_message(t('Congratulations!'));
+	}
+}
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function cgsi_extras_form_alter(&$form, $form_state, $form_id) {
+	if ($form_id == 'views_exposed_form') {
+		//$view = $form['#parameters'][1]['view'];
+		$view = $form_state['view'];
+
+		// Add some extra descriptive text to select widgets on all views.
+		foreach ($form['#info'] as $id => $widget) {
+			$id = str_replace('filter-', '', $id);
+			if ($form[$id]['#type'] == 'select' && $form[$id]['#multiple'] == TRUE) {
+				$form[$id]['#description'] = t('Use CTRL/Apple key to select multiple.');
+			}
+		}
+
+		// Alterations for Church Record, and Passenger Ship Record Browsers.
+		if (in_array($view->name, array('Church_Records_Browser', 'Passenger_Ship_Records'))) {
+			// Require the surname field, and it needs to contain a minimum of 3 characters.
+			$form['title_soundslike']['#required'] = TRUE;
+			$form['title_soundslike']['#element_validate'] = array('cgsi_extras_surname_validate');
+
+
+			// Remove some extra operators from filter options.
+			$remove = array('!=', 'word', 'allwords', 'not', 'empty', 'not empty', 'shorterthan', 'longerthan', 'regular_expression');
+			foreach ($remove as $op) {
+				// Ship, and Church
+				unset($form['title_soundslike_op']['#options'][$op]);
+				unset($form['title_op']['#options'][$op]);
+				unset($form['title_1_op']['#options'][$op]);
+				// Church records only
+				unset($form['field_cr_given_name_value_op']['#options'][$op]);
+				// Ship records only
+				unset($form['field_psr_first_name_value_op']['#options'][$op]);
+				unset($form['field_psr_ship_value_op']['#options'][$op]);
+			}
+
+			// There are some fields that for data entry purposes we want to be
+			// CCK textfields, but when filtering a view we want them to be select
+			// elements. Here we convert those textfields to select fields for the
+			// exposed form.
+			// array('field_name' => 'table_name');
+			$to_select = array(
+					'field_cr_record_type_value' => 'field_data_field_cr_record_type',
+					'field_cr_church_name_value' => 'field_data_field_cr_church_name',
+					'field_psr_arrival_city_value' => 'field_data_field_psr_arrival_city',
+			);
+
+			foreach ($to_select as $field_key => $table) {
+				if (isset($form[$field_key])) {
+					$opts = cache_get('cgsi:' . $field_key . ':' . $table);
+					if (!$opts) {
+						// Figure out what our options should be.
+						$opts = array('' => '< All >');
+						$sql = "SELECT DISTINCT {$field_key} FROM {$table} WHERE {$field_key} IS NOT NULL ORDER BY {$field_key}";
+						$results = db_query($sql);
+						foreach ($results as $row) {
+							$opts[$row->{$field_key}] = $row->{$field_key};
+						}
+						// This is expensive so lets cache it.
+						cache_set('cgsi:' . $field_key . ':' . $table, $opts, 'cache', CACHE_TEMPORARY);
+					}
+					else {
+						$opts = $opts->data;
+					}
+
+					$form[$field_key]['#type'] = 'select';
+					///$form[$field_key]['#multiple'] = FALSE;
+					$form[$field_key]['#options'] = $opts;
+					unset($form[$field_key]['#size']);
+				}
+			}
+		}
+
+		// Modifications for the surnames search view's exposed form.
+		if ($view->name == 'Surnames') {
+			// Add some extra validation handling.
+			$form['#validate'][] = 'cgsi_extras_surname_filter_validate';
+
+			// Operator fields should be limited to the following operations.
+			$opts = array(
+					'=' => t('Is equal to'),
+					'contains' => t('Contains'),
+					'starts' => t('Starts with'),
+					'ends' => t('Ends with'),
+			);
+			$form['title_soundslike_op']['#options'] = array_merge($opts, array('soundex' => t('Sounds like')));
+			$form['title_op']['#options'] = array_merge($opts, array('soundex' => t('Sounds like')));
+			$form['field_surname_european_city_value_op']['#options'] = $opts;
+			$form['field_surname_immigration_area_value_op']['#options'] = $opts;
+
+			// Add a reset button.
+			$form['reset'] = array(
+					'#type' => 'markup',
+					'#markup' => '<input ' . drupal_attributes(array('type' => 'button', 'value' => t('Reset'))) . 'onclick="javascript:$(\'.views-exposed-widget input[type=text]\').val(\'\'); $(\'#edit-field-surname-european-country-value-many-to-one\').val(\'All\');" class="form-submit" />',
+			);
+		}
+
+		// HACK! TODO: Figure out a better way to clear these errors.
+		// Because we are assigning the #element_validate function to the title_soundslike field above
+		// and because cgsi_captcha.module is adding a captcha field to the views_exposed_form
+		// the form is outputting errors when viewing a page like view/1, without every having clicked
+		// the submit button for the form. Something about the way views implements exposed fileters
+		// causes the _validate routines for all form elements to be called even if you haven't actually
+		// applied any filters yet. Because both the validate routine above, and the captcha_validate()
+		// function raise form_errors() when an element is NULL or blank we were ending up with
+		// errors being displayed on pages like view/1 when a user first comes to the page.
+		// The code below checks to see if anything other than the ?q variable exists in $_GET, and if not
+		// assumes that we are viewing a view without having applied any filters. In this case only, we add
+		// the cgsi_extras_suppress_errors() #validate callback to the form which clears all errors raised by
+		// views_exposed_form_validate().
+		// Yuck!
+		$qs = $_GET;
+		unset($qs['q']);
+		if (!$qs) {
+			$form['#validate'][] = 'cgsi_extras_supress_errors';
+		}
+
+		// Change submit button to say "Search" instead of the views defualt "Apply"
+		$form['submit']['#value'] = t('Search');
+
+		// Alterations for admin/user/user2 membership list page.
+		if ($view->name == 'User_Management') {
+
+		}
+	}
+
+	// Allow forcing the advanced search form to open by default.
+	if ($form_id == 'search_form') {
+		if (isset($_GET['advanced']) && isset($form['advanced'])) {
+			$form['advanced']['#collapsed'] = FALSE;
+		}
+	}
+}
+
+/**
+ * Implementation of hook_nodeapi().
+ */
+function cgsi_extras_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+	// Clear the cached <select> element options from cgsi_extras_form_alter() whenever
+	// a ship record, or church record is added/updated.
+	if (($op == 'insert' || $op == 'update') && ($node->type == 'church_record' || $node->type == 'passenger_ship_record')) {
+		cache_clear_all('cgsi:', 'cache', TRUE);
+	}
+
+	// On surname nodes we force some of the fields to title case.
+	if ($op == 'presave' && $node->type == 'surname') {
+		$node->title = ucwords(drupal_strtolower($node->title));
+		$node->field_surname_european_city[0]['value'] = ucwords(drupal_strtolower($node->field_surname_european_city[0]['value']));
+		// If the field only contains 2 characters we assume it is a state
+		// abbreviation and force it to all caps.
+		if (drupal_strlen($node->field_surname_immigration_area[0]['value']) == 2) {
+			$node->field_surname_immigration_area[0]['value'] = drupal_strtoupper($node->field_surname_immigration_area[0]['value']);
+		}
+		else {
+			$node->field_surname_immigration_area[0]['value'] = ucwords(drupal_strtolower($node->field_surname_immigration_area[0]['value']));
+		}
+	}
+}
+
+
+/**
+ * The user was built; the module may modify the structured content.
+ *
+ * This hook is called after the content has been assembled in a structured array
+ * and may be used for doing processing which requires that the complete user
+ * content structure has been built.
+ *
+ * If the module wishes to act on the rendered HTML of the user rather than the
+ * structured content array, it may use this hook to add a #post_render callback.
+ * Alternatively, it could also implement hook_preprocess_user_profile(). See
+ * drupal_render() and theme() documentation respectively for details.
+ *
+ * @param $build
+ *   A renderable array representing the user.
+ *
+ * @see user_view()
+ * @see hook_entity_view_alter()
+ */
+function cgsi_extras_user_view_alter(&$build) {
+	$user = $build['#account'];
+	$build['Member Information']['mail'] = array(
+			'#type' => 'user_profile_item',
+			'#title' => t('email'),
+			'#markup' => l($user->mail, 'mailto:' . $user->mail),
+			'#weight' => 50,
+			'#attributes' => array('class' => 'profile-mail'),
+	);
+}
+
+/**
+ * Implements hook_user_login().
+ * Empty the user's shopping cart when they log in.
+ */
+function cgsi_extras_user_login(&$edit, $account) {
+	uc_cart_empty(uc_cart_get_id());
+}
+
+/**
+ * Implements hook_user_logout().
+ * Empty the user's shopping cart when they logout.
+ */
+function cgsi_extras_user_logout($account) {
+	uc_cart_empty(uc_cart_get_id());
+}
+
+/**
+ * FAPI; Validation callback for the title_soundslike element in some views filter
+ * forms.
+ * Makes sure the field contains at least 3 characters.
+ */
+function cgsi_extras_surname_validate($element, &$form_state) {
+	if (drupal_strlen($element['#value']) < 3) {
+		form_error($element, t('Surname field must contain at least 3 characters.'));
+	}
+}
+
+// See related comments in cgsi_extras_form_alter().
+function cgsi_extras_supress_errors($form_id, $form_values) {
+	// Reset error messages.
+	drupal_get_messages('error', TRUE);
+}
+
+/**
+ * FAPI; Validation callback. Provides custom validation routines for the
+ * exposed filters form on the surnames search view.
+ * See inline comments.
+ */
+function cgsi_extras_surname_filter_validate($form, &$form_state) {
+	// The surname/title field must contain a minimum of 3 characters.
+	//if (!empty($form_state['values']['title_soundslike']) && drupal_strlen($form_state['values']['title_soundslike']) < 3) {
+	if (!empty($form_state['values']['title_soundslike']) && drupal_strlen($form_state['values']['title_soundslike']) < 3) {
+		form_set_error('title_soundslike', t('Surname field must contain at least 3 characters'));
+	}
+
+	// The city/village of origin field must contain a minimum of 3 characters.
+	if (!empty($form_state['values']['field_surname_european_city_value']) && drupal_strlen($form_state['values']['field_surname_european_city_value']) < 3) {
+		form_set_error('field_surname_european_city_value', t('City/Village of Origin field must contain at least 3 characters'));
+	}
+
+	// The immigration area field must contain a minimum of 2 characters.
+	if (!empty($form_state['values']['field_surname_immigration_area_value']) && drupal_strlen($form_state['values']['field_surname_immigration_area_value']) < 2) {
+		form_set_error('field_surname_immigration_area_value', t('Immigration area (US or other) field must contain at least 2 characters'));
+	}
+
+	// You must enter a value into at least one of the fields.
+	//if (empty($form_state['values']['title_soundslike']) && empty($form_state['values']['field_surname_european_city_value']) && empty($form_state['values']['field_surname_immigration_area_value'])) {
+	if (empty($form_state['values']['title_soundslike']) && empty($form_state['values']['field_surname_european_city_value']) && empty($form_state['values']['field_surname_immigration_area_value'])) {
+		form_set_error('', t('You must enter a value for at least one of the fields below.'));
+		form_set_error('title_soundslike', t('Surname'));
+		//form_set_error('title', t('Surname'));
+		form_set_error('field_surname_european_city_value', t('City/Village of Origin'));
+		form_set_error('field_surname_immigration_area_value', t('Immigration area (US or other)'));
+	}
+	}
+
+	/**
+	 * Helper function, detect wether or not a string contains diacritical characters.
+	 *
+	 * @param $string
+	 * @return TRUE if the string contains any diacritical marks, FALSE otherwise.
+	 */
+	function cgsi_extras_has_diacriticals($string) {
+		$pattern = '/[^[:alnum:][:punct:][:space:]]/';
+		preg_match($pattern, $string, $matches);
+		if (count($matches)) {
+			return TRUE;
+		}
+		return FALSE;
+	}
+
+	/**
+	 * Menu callback; Redirect a user to the view which displays all Surnames
+	 * entered by that user.
+	 */
+	function cgsi_extras_my_surnames() {
+		global $user;
+		if ($user->uid != 0) {
+			drupal_goto('user/' . $user->uid . '/surnames');
+		}
+	}

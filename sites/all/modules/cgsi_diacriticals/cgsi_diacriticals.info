@@ -1,0 +1,3 @@
+name = CGSI Diacritical Filter
+description = Raise errors on certain form fields if they contain diacritical marks.
+core = "7.x"

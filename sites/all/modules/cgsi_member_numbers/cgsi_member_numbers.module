@@ -1,0 +1,136 @@
+<?php
+/**
+ * @file
+ * Helper functions for automatic member number generation.
+ */
+
+/**
+ * Implement hook_menu().
+ */
+function cgsi_member_numbers_menu() {
+	$items = array();
+	$items['user/%user/cgsi_member_numbers/assign'] = array(
+			'title' => 'Assign next number',
+			'page callback' => 'cgsi_member_numbers_assign_next',
+			'page arguments' => array(1),
+			'access arguments' => array('administer users'),
+			'type' => MENU_CALLBACK,
+	);
+	return $items;
+}
+
+/**
+ * Implement hook_form_FORM_ID_alter().
+ *
+ * Add a link to the profile_member_number field title that allows the admin to
+ * automatically generate and assign the next number in sequence.
+ */
+function cgsi_member_numbers_form_user_profile_form_alter(&$form, &$form_state) {
+	$form['Account Information']['profile_member_number']['#title'] .= ' - ' . l('Assign next available number', 'user/' . $form['#user']->uid . '/cgsi_member_numbers/assign');
+	//$form['Account Information']['profile_member_number']['#disabled'] = TRUE;
+}
+
+/**
+ * Menu Callback; Assign the next available member number to the specified user
+ * account.
+ *
+ * @param $account
+ *  The user object representing the account that the new member number will be
+ *  assigned to.
+ * @param $redirect
+ *  (bool) Whether or not to redirect the user to the Account Information
+ *  editing page after assigning the member number.
+ * @return
+ *  If not redirecting, return the $user object with the new account number
+ *  added.
+ */
+function cgsi_member_numbers_assign_next($account, $redirect = TRUE) {
+	if (!empty($account->profile_member_number)) {
+		form_set_error('profile_member_number', t('This account already has a member number.'));
+	}
+	else {
+		$profile_member_number = cgsi_member_numbers_get_next();
+		// FID of the profile_member_number profile field.
+		$fid = 11;
+
+		db_delete('profile_value')
+		->condition('uid', $account->uid)
+		->condition('fid', $fid)
+		->execute();
+
+		$id = db_insert('profile_value')
+		->fields(array(
+				'fid' => $fid,
+				'uid' => $account->uid,
+				'value' => $profile_member_number
+		))
+		->execute();
+
+		$user->profile_member_number = $profile_member_number;
+		if ($redirect) {
+			drupal_set_message(t('Member number created.'));
+		}
+	}
+
+	if ($redirect) {
+		drupal_goto('user/' . $account->uid . '/edit/Account Information');
+	}
+	else {
+		return $user;
+	}
+}
+
+function cgsi_member_numbers_get_next() {
+	$results = db_query("SELECT MAX(value+0) AS memno
+			FROM profile_field JOIN profile_value ON profile_field.fid = profile_value.fid
+			WHERE title LIKE 'Member Number'");
+
+	foreach ($results as $result) {
+		$maxMemberNumber = $result->memno;
+	}
+
+	$current_number = variable_get('cgsi_member_numbers_sequence', 0);
+	if ($maxMemberNumber > $current_number) $current_number = $maxMemberNumber;
+
+	$new_number = $current_number + 1;
+	variable_set('cgsi_member_numbers_sequence', $new_number);
+	return $new_number;
+}
+
+/**
+ * Return the {user}.uid the member specified by member number.
+ *
+ * @param $member_number
+ *  Member number to lookup.
+ *
+ * @return
+ *   {users}.uid of the member or FALSE.
+ */
+function cgsi_member_numbers_get_uid($member_number) {
+	$results = db_query('SELECT uid FROM {profile_value} WHERE fid = %d AND value = "%s" LIMIT 1', 11, $member_number);
+	foreach ($results as $uid) {
+		return isset($uid) ? $uid : FALSE;
+	}
+}
+
+/**
+ * Implement hook_views_query_alter().
+ * @see views.module
+ */
+function cgsi_member_numbers_views_query_alter(&$view, &$query) {
+	foreach ($query->orderby as $key => $value) {
+		if (strpos($value['field'], 'profile_value_profile_member_number_value') !== FALSE) {
+			$query->orderby[$key] = str_replace('profile_value_profile_member_number_value', '(profile_value_profile_member_number_value + 0)', $value);
+		}
+	}
+}
+
+/**
+ * Implements hook_migrate_api().
+ */
+function cgsi_member_numbers_migrate_api() {
+	$api = array(
+			'api' => 2,
+	);
+	return $api;
+}

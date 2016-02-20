@@ -1,0 +1,72 @@
+<?php
+/**
+ * @file cgsi_status.install
+ * Contains install and update functions for cgsi_status.
+ */
+
+/**
+ * Implement hook_install().
+ */
+function cgsi_status_install() {
+	drupal_set_message('Installing cgsi_status.');
+	drupal_install_schema('cgsi_status');
+}
+
+/**
+ * Implement hook_uninistall().
+ */
+function cgsi_status_uninstall() {
+	drupal_uninstall_schema('cgsi_status');
+}
+
+/**
+ * Implement hook_schema().
+ */
+function cgsi_status_schema() {
+	$schema = array();
+	$schema['cgsi_status'] = array(
+			'description' => t('Stores a users currenty status.'),
+			'fields' => array(
+					'uid' => array(
+							'type' => 'int',
+							'not null' => TRUE,
+							'default' => 0,
+							'descripiton' => 'Users {users}.uid.',
+					),
+					'status' => array(
+							'type' => 'varchar',
+							'length' => 128,
+							'not null' => TRUE,
+							'default' => '',
+							'descrption' => 'Unique machine-name of users status',
+					),
+			),
+			'indexes' => array('uid' => array('uid')),
+	);
+	$schema['cgsi_status_history'] = array(
+			'description' => t('Stores a log of all status changes for a user account.'),
+			'fields' => array(
+					'uid' => array(
+							'type' => 'int',
+							'not null' => TRUE,
+							'default' => 0,
+							'descripiton' => 'Users {users}.uid.',
+					),
+					'status' => array(
+							'type' => 'varchar',
+							'length' => 128,
+							'not null' => TRUE,
+							'default' => '',
+							'descrption' => 'Unique machine-name of users status',
+					),
+					'modified' => array(
+							'type' => 'int',
+							'not null' => TRUE,
+							'default' => 0,
+							'description' => 'Timestamp for when this status was set.',
+					),
+			),
+			'indexes' => array('uid' => array('uid')),
+	);
+	return $schema;
+}

@@ -1,0 +1,1093 @@
+<?php
+// $Id
+/**
+ * @file cgsi_signup.module
+ * Provides custom work flow for the Czech Genealogical Society's website.
+ * Implements a page at /signup which allows a user to create a new account, and chosoe
+ * from the possible "Membership" variations. Then creates the account, logs the user
+ * in and puts the appropriate membership product into their shopping cart. Finally,
+ * redirect the user to the checkout page.
+ *
+ * NOTE: In order for this module to function as expected the drupal site should be
+ * configured to not require e-mail verification of new user accounts. This way the
+ * newly created user is automatically logged in and we can continue processing as
+ * if they are now a user.
+ *
+ * NOTE: In order to accomplish everything on the CGSI website there is also a custom
+ * template file for this form. See the themes/ directory.
+ */
+
+/**
+ * Implementation of hook_menu().
+ */
+function cgsi_signup_menu() {
+	$items = array();
+	$items['signup'] = array(
+			'title' => 'Sign-up',
+			'title callback' => 'cgsi_signup_form_title',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('cgsi_signup_form'),
+			'access callback' => 'cgsi_signup_access',
+			'type' => MENU_NORMAL_ITEM,
+	);
+	$items['signup/print/%'] = array(
+			'title' => 'Print and Mail In Payment',
+			'page callback' => 'cgsi_signup_print',
+			'page arguments' => array(2),
+			'type' => MENU_CALLBACK,
+			'access callback' => TRUE,
+	);
+	$items['admin/settings/cgsi_signup'] = array(
+			'title' => 'CGSI Signup Configuration',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('cgsi_signup_settings'),
+			'access arguments' => array('administer site configuration'),
+			'file' => 'cgsi_signup.admin.inc',
+	);
+	$items['user/%user/edit/cgsi_signup_resend'] = array(
+			'title' => 'Resend Welcome Message',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('cgsi_signup_resend', 1),
+			'access arguments' => array('administer users'),
+			'file' => 'cgsi_signup.admin.inc',
+			'type' => MENU_LOCAL_TASK,
+			'weight' => 10,
+	);
+	return $items;
+}
+
+/**
+ * Implement hook_theme().
+ */
+function cgsi_signup_theme() {
+	return array(
+			'cgsi_signup_membership_table' => array(
+					'arguments' => array('form' => NULL),
+			),
+			'cgsi_signup_print' => array(
+					'arguments' => array('account' => NULL, 'product' => NULL, 'grand_total' => NULL, 'donation_amount' => NULL),
+					'template' => 'cgsi_signup_print', // cgsi_signup_print.tpl.php
+			),
+	);
+}
+
+/**
+ * Determine access permissions for /signup menu item.
+ * @return boolean
+ *  Return TRUE for users who should be allowed to view this page.
+ */
+function cgsi_signup_access() {
+	return TRUE;
+	if (user_register_access()) {
+		return TRUE;
+	}
+	else if (user_access('administer users')) {
+		return TRUE;
+	}
+}
+
+/**
+ * Implement hook_cron().
+ */
+function cgsi_signup_cron() {
+	// Delete anything in the {cgsi_signup} table older than 30 minutes.
+	db_delete('cgsi_signup')
+	->condition('created', REQUEST_TIME - 1800, '<')
+	->execute();
+}
+
+/**
+ * Menu callback; Set title for cgsi_signup_form page.
+ */
+function cgsi_signup_form_title() {
+	global $user;
+	if (isset($user) && $user->uid != 0) {
+		return t('Membership Renewal');
+	}
+	return t('Membership Application');
+}
+
+/**
+ * Create custom user registration form.
+ */
+function cgsi_signup_form($form, &$form_state, $form_id = '') {
+	global $user;
+
+	// The user object hasn't been fully loaded, so we take care of that here.
+	if (isset($user) && $user->uid != 0) {
+		$user = user_load($user->uid);
+	}
+	profile_user_load(array($user->uid => $user));
+
+	// Are they purchasing a role for the first time or renewing?
+	$expirations = db_query("SELECT * FROM {uc_roles_expirations} WHERE uid = :uid",	array(':uid' => $user->uid));
+	foreach ($expirations as $expiration) {
+		$substitution = array(
+				'!role_name' => _uc_roles_get_name($expiration->rid),
+				'!date' => format_date(strtotime('-10 days', $expiration->expiration), 'custom', 'm/d/Y'),
+		);
+		$form['expirations'][$expiration->rid] = array(
+				'#type' => 'markup',
+				'#markup' => t('Your access to the members only area of our website is currently set to expire on %date', array('%date' => $substitution['!date'])),
+		);
+		$renew = TRUE;
+	}
+
+	if ($form['expirations']) {
+		$form['expirations']['#type'] = 'fieldset';
+		$form['expirations']['#title'] = 'Current membership expiration';
+		$form['expirations']['#weight'] = -14;
+	}
+
+	// Display form to allow user to choose update options.
+	$form['membership_type'] = array(
+			'#type' => 'fieldset',
+			'#title' => t('Choose one of the following membership levels and terms'),
+			'#weight' => -13,
+			'#attributes' => array('class' => 'pricing-options'),
+			'#description' => t('For a definition of Individual, Household, and Sponsor memberships, <a href="!link">see the FAQ page</a>.', array('!link' => url('faq'))),
+	);
+
+	$form['membership_type']['membership_product_select'] = _cgsi_signup_membership_product_table();
+
+	$form['membership_extras'] = array(
+			'#type' => 'fieldset',
+			'#weight' => -12,
+			'#title' => t('Membership Extras'),
+	);
+
+	$form['membership_extras']['library_donation'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Tax-Deductible Library Fund Donation'),
+			'#description' => t('Please consider making an extra contribution to CGSI either by specifying an additional donation or by selecting a Sponsor Membership level. All donations (including that portion of your membership fee over the standard rate) are tax deductible. At the present time, library donations help to purchase new and used books of genealogy nature for our library collection. In the Sponsor Membership level, any additional money above the regular fee is currently used to help support the CGSI Traveling Library Program. All donations are recognized by publishing the member name(s) in an issue of CGSI\'s quarterly, <i>Nase rodina</i>.'),
+			'#field_prefix' => '$',
+	);
+
+	// Get the profile fields.
+	$extra = _user_forms();
+	$form = array_merge($form, $extra);
+
+	// Add account information form for new users.
+	if ($user->uid == 0) {
+		// Display form to allow user to choose update options.
+
+		$user_register_form = user_register_form($form, $form_state);
+
+		$form = array_merge($form, $user_register_form);
+		unset($form['actions']);
+		 
+		// Change help text on e-mail field.
+		$form['account']['mail']['#description'] = t('All emails from CGSI will be sent to this address.');
+		 
+		$form['account']['#type'] = 'fieldset';
+		$form['account']['#title'] = t('Login information');
+		$form['account']['#description'] = t('Create a username and password to log in to the CGSI Members Only area.');
+		 
+		// Password policy stuff
+		// @see password_policy.module
+		// Password change form.
+		$policy = _password_policy_load_active_policy(null);
+		if (!empty($policy['policy'])) {
+			// Some policy constraints are active.
+			password_policy_add_policy_js($policy, $user->uid);
+		}
+
+		// Printing out the restrictions.
+		if (PASSWORD_POLICY_SHOW_RESTRICTIONS && isset($translate)) {
+			$form['account']['pass']['#prefix'] = '<div id="account-pass-restrictions"><ul><li>' . implode('</li><li>', $translate) . '</li></ul><div>';
+		}
+	}
+	else {
+		$form['account'] = array();
+		$form['account']['name'] = array(
+				'#type' => 'hidden',
+				'#value' => check_plain($user->name),
+		);
+		$form['account']['mail'] = array(
+				'#type' => 'hidden',
+				'#value' => check_plain($user->mail),
+		);
+	}
+
+	// Remove the "How did you hear about CGSI", and "Former member" fields if
+	// the user is renewing.
+	if ($user->uid != 0) {
+		unset($form['Member Information']['profile_heard_about'], $form['Member Information']['profile_heard_about_other'], $form['Member Information']['profile_former_member'], $form['Member Information']['profile_former_member_number']);
+
+		// Remove the "2nd member" fields in the user does NOT have a Household membership
+		//     if ($user->profile_membership_level != 'Household') {
+		//     	unset($form['Member Information']['profile_last_name_2']);
+		//     	unset($form['Member Information']['profile_first_name_2']);
+		//     }
+		}
+
+		// We want to take care of sending the user along on our own.
+		unset($form['destination']);
+
+		// Profile.module sets this text on all "private" fields, but does not provide a way for you to turn
+		// it off, or even to override it with a theme_ function. Yuck.
+		$profile_fields = element_children($form['Member Information']);
+		foreach ($profile_fields as $field_key) {
+			if ($form['Member Information'][$field_key]['#description']) {
+				$form['Member Information'][$field_key]['#description'] = str_replace(' The content of this field is kept private and will not be shown publicly.', '', $form['Member Information'][$field_key]['#description']);
+				// If the user is renewing, we prepopulate their profile fields for them.
+				$form['Member Information'][$field_key]['#default_value'] = (isset($user->{$field_key})) ? $user->{$field_key} : '';
+			}
+		}
+
+		// @todo: why does this not get set by the loop above?
+		$form['Member Information']['profile_first_name']['#default_value'] = (isset($user->profile_first_name)) ? $user->profile_first_name : '';
+
+		// Set Display Address to 1.
+		$form['Member Information']['profile_display_address'] = array(
+				'#type' => 'hidden',
+				'#value' => "1",
+		);
+
+		// Pass along current member number, if available.
+		$form['Member Information']['profile_member_number'] = array(
+				'#type' => 'hidden',
+				'#value' => !empty($user->profile_member_number) ? $user->profile_member_number : NULL,
+		);
+
+
+		// Move account information below profile.module fields. 20 should put it below all
+		// profile.module or other module fields, but keep it above the submit button.
+		$form['account']['#weight'] = 47;
+
+		// Add user_register_submit as a callback for this form. This means we are still
+		// calling all the hooks, and validation routines that drupal would normally call
+		// when registering a new user.
+		$form['#submit'] = array('cgsi_signup_form_submit');
+
+		$form['reset'] = array(
+				'#type' => 'markup',
+				'#markup' => '<input type="reset" name="reset" value="Cancel and clear form" class="form-submit"/>',
+				'#weight' => 48,
+		);
+
+		// Attach validation handler for password_policy.
+		$form['#validate'][] = 'password_policy_password_validate';
+		$form['#validate'][] = 'cgsi_signup_form_validate';
+
+		$form['print_and_mail'] = array(
+				'#type' => 'submit',
+				'#value' => t('Print and mail with payment'),
+				'#submit' => array('cgsi_signup_print_mail_submit'),
+				'#weight' => 49,
+		);
+
+		$form['submit'] = array(
+				'#type' => 'submit',
+				'#value' => t('Pay online with credit card'),
+				'#weight' => 50,
+		);
+
+		$form['renew'] = array(
+				'#type' => 'value',
+				'#value' => ($user->uid != 0) ? $user->uid : 0,
+		);
+		return $form;
+	}
+
+	/**
+	 * Retrieve a list of all user profile fields.
+	 */
+	function _user_forms() {
+		$groups = array();
+		$data = profile_form_profile();
+		$groups = array_merge_recursive($data, $groups);
+		uasort($groups, '_user_sort');
+		return empty($groups) ? FALSE : $groups;
+	}
+
+	function profile_form_profile() {
+		$result = _profile_get_fields(NULL, true);
+		$weight = -11;
+		$fields = array();
+		foreach ($result as $field) {
+			$category = $field->category;
+			if (!isset($fields[$category])) {
+				$fields[$category] = array('#type' => 'fieldset', '#title' => check_plain($category), '#weight' => $weight++);
+			}
+			switch ($field->type) {
+				case 'textfield':
+				case 'url':
+					$fields[$category][$field->name] = array('#type' => 'textfield',
+					'#title' => check_plain($field->title),
+					'#default_value' =>  '',
+					'#maxlength' => 255,
+					'#description' => _profile_form_explanation($field),
+					'#required' => $field->required,
+					);
+					if ($field->autocomplete) {
+						$fields[$category][$field->name]['#autocomplete_path'] = "profile/autocomplete/". $field->fid;
+					}
+					break;
+				case 'textarea':
+					$fields[$category][$field->name] = array('#type' => 'textarea',
+					'#title' => check_plain($field->title),
+					'#default_value' =>  '',
+					'#description' => _profile_form_explanation($field),
+					'#required' => $field->required,
+					);
+					break;
+				case 'list':
+					$fields[$category][$field->name] = array('#type' => 'textarea',
+					'#title' => check_plain($field->title),
+					'#default_value' => isset($edit[$field->name]) ? $edit[$field->name] : '',
+					'#description' => _profile_form_explanation($field),
+					'#required' => $field->required,
+					);
+					break;
+				case 'checkbox':
+					$fields[$category][$field->name] = array('#type' => 'checkbox',
+					'#title' => check_plain($field->title),
+					'#default_value' =>  '',
+					'#description' => _profile_form_explanation($field),
+					'#required' => $field->required,
+					);
+					break;
+				case 'selection':
+					$options = $field->required ? array() : array(t('- None -'));
+					$lines = preg_split("/[\n\r]/", $field->options);
+					foreach ($lines as $line) {
+						if ($line = trim($line)) {
+							$options[$line] = $line;
+						}
+					}
+
+					$fields[$category][$field->name] = array('#type' => 'select',
+							'#title' => check_plain($field->title),
+							'#default_value' => '',
+							'#options' => $options,
+							'#description' => _profile_form_explanation($field),
+							'#required' => $field->required,
+					);
+					break;
+				case 'date':
+					$fields[$category][$field->name] = array('#type' => 'date',
+					'#title' => check_plain($field->title),
+					'#default_value' => '',
+					'#description' => _profile_form_explanation($field),
+					'#required' => $field->required,
+					);
+					break;
+			}
+		}
+		return $fields;
+	}
+
+	/**
+	 * Submit handler for cgsi_signup_form.
+	 */
+	function cgsi_signup_form_submit($form, &$form_state) {
+		$data = _cgsi_signup_process_form($form, $form_state);
+
+		// Lending library donation?
+		if ($form_state['values']['library_donation']) {
+			$nid = variable_get('cgsi_signup_cgsi_signup_library_fund_nid', FALSE);
+			if ($nid) {
+				$donate_amount = $form_state['values']['library_donation'];
+				$donate_amount = ereg_replace('[^0-9\.]*', '', $donate_amount);
+				$donate_amount = floatval($donate_amount);
+				$donation_data = array(
+						'varprice' => $donate_amount,
+						'qty' => 1,
+						'attributes' => array(),
+				);
+				//uc_cart_add_item($nid, 1, module_invoke_all('add_to_cart_data', $donation_data), NULL, TRUE, FALSE);
+				uc_cart_add_item($nid, 1, $donation_data, NULL, TRUE, FALSE);
+			}
+		}
+
+		// Add the product to the users cart and send them to the checkout page.
+		// Add all our collected data so when the order is complete we can make use of it.
+		$cart_data = module_invoke_all('add_to_cart_data', $form_state['values']);
+		$cart_data['account_info'] = $data['data'];
+		uc_cart_add_item($data['product_nid'], 1, $cart_data, NULL, TRUE, FALSE);
+		// Rebuild the cart.
+		$form_state['redirect'] = 'cart/checkout';
+		$form_state['redirect'] = 'cart';
+	}
+
+	/**
+	 * Form Builder; Reset callback for cgsi_signup_form.
+	 */
+	function cgsi_signup_form_clear($form, &$form_state) {
+		unset($form_state['values']); 	// ensures field are blank after reset button is clicked
+		unset($form_state['storage']); 	// ensures field are blank after reset button is clickedreset button removed the another_name part
+		$form_state['rebuild'] = true;
+	}
+
+
+	/**
+	 * Form Builder; Validation callback for cgsi_signup_form.
+	 */
+	function cgsi_signup_form_validate($form, &$form_state) {
+		// Make sure they have filled in the first and last name fields, unless they
+		// have entered something into the company/organization field, in which case
+		// the first and last name fields are not required.
+		if (empty($form_state['values']['profile_company'])) {
+			if (empty($form_state['values']['profile_first_name'])) {
+				form_set_error('profile_first_name', 'First name is required');
+			}
+			if (empty($form_state['values']['profile_last_name'])) {
+				form_set_error('profile_last_name', 'Last name is required');
+			}
+		}
+
+		// Make sure term/level is a valid product.
+		if (!variable_get($form_state['values']['membership_choices'], FALSE)) {
+			form_set_error('membership_choices', t('Invalid membership type.'));
+		}
+		
+		// Country is required
+		$country = $form_state['values']['profile_country'];
+		if ((strpos($country,'...') !== false) || (strpos($country,'---') !== false)) {
+			form_set_error('profile_country', t('Please select a country.'));
+		}
+
+		// Make sure that they live in US for 1st Class postage
+		$countries = array('United States');
+		if (!in_array($form_state['values']['profile_country'], $countries)) {
+			$var_name = $form_state['values']['membership_choices'];
+			// We check for existance of 'cgsi_signup_for_' in the variable name which
+			// designates the product that will be added to the users cart as either a
+			// foreign or us/canada membership.
+			if (strstr($var_name, 'cgsi_signup_for_')) {
+				form_set_error('membership_choices', t('1st Class postage is only available in the US. Please choose a membership that does not include 1st Class postage.'));
+			}
+		}
+
+		// If country == United States make sure they are using abbrv. state names.
+		if ($form_state['values']['profile_country'] == 'United States') {
+			if (!$form_state['values']['profile_state']) {
+				form_set_error('profile_state', t('State/Province is required.'));
+			}
+			if (strlen($form_state['values']['profile_state']) > 2) {
+				form_set_error('profile_state', t('Please use abbreviated (2 letter) state names.'));
+			}
+		}
+
+		// Figure out what term/level the user choose.
+		$term_level = _cgsi_signup_map_variable_name_to_term_level($form_state['values']['membership_choices']);
+		// If the user has choosen a Household membership level, they are required to
+		// enter a value for the 2nd Household Membership first/last name fields.
+		if ($term_level['level'] == 'Household') {
+			if (!$form_state['values']['profile_first_name_2']) {
+				form_set_error('profile_first_name_2', t('For Household membership, 2nd Household member first name is required.'));
+			}
+			if (!$form_state['values']['profile_last_name_2']) {
+				form_set_error('profile_last_name_2', t('For Household membership, 2nd Household member last name is required.'));
+			}
+		}
+
+		// Validate password.
+		// This is done by the password_policy_password_validate() submit handler
+		// attached to the form when it is built.
+
+		// Validate user registration and profile form fields.
+		if (isset($form_state['values']['renew']) && $form_state['values']['renew'] == 0) {
+			user_register_validate($form, $form_state);
+		}
+		else {
+			module_load_include('inc', 'user', 'user.pages');
+			user_profile_form_validate($form, $form_state);
+		}
+
+		// If any errors are set, we need to remind the user that they need to
+		// re-enter their password.
+		if (form_get_errors() && $form_state['values']['renew'] == 1) {
+			form_set_error('', t('Please re-enter your password. All other information has been retained.'));
+		}
+
+	}
+
+/**
+ * Implements hook_user_insert().
+ *
+ * Set "Display address" profile field to TRUE by default on all new users.
+ */
+function cgsi_signup_user_insert(&$edit, $account, $category) {
+	$fid = 32; // fid of profile_display_address
+	db_delete ( 'profile_value' )->condition ( 'uid', $account->uid )->condition ( 'fid', $fid )->execute ();
+	$id = db_insert ( 'profile_value' )->fields ( array (
+			'fid' => $fid,
+			'uid' => $account->uid,
+			'value' => 1 
+	) )->execute ();
+}
+
+	/**
+	 * Submit callback for print and mail with payment button on signup/renewal form.
+	 *
+	 * Send an e-mail to someone?
+	 */
+	function cgsi_signup_print_mail_submit($form, &$form_state) {
+		$edit  = array();
+		$data = _cgsi_signup_process_form($form, $form_state);
+		$account = (object) $data['data'];
+		$account->uid = isset($account->renew) ? $account->renew : NULL;
+
+		// Drupal will try to reset the session, since we don't have password and status data. It assumes user has been blocked
+		if ($account->renew) {
+			drupal_save_session(FALSE);
+		}
+
+		unset($account->renew);
+		
+		// Before saving user, makes sure roles are set. Otherwise, user_save may remove them.
+		$original = entity_load_unchanged('user', $account->uid);
+		$account->roles = $original->roles;
+		$account = user_save($account, $data['data']);
+
+		drupal_save_session(TRUE);
+
+		// Save profile fields.
+		profile_save_profile($data['data'], $account, 'Member Information');
+		// Save admin only profile fields.
+		_cgsi_signup_profile_save_profile($data['data'], $account, 'Account Information');
+		// Save any donation information.
+		if (!empty($account_info['donation'])) {
+			cgsi_donations_log_donation($account_info['donation'], 'Sponsor donation', $account->uid);
+		}
+		if (!empty($account_info['library_donation'])) {
+			cgsi_donations_log_donation($account_info['library_donation'], 'Library donation', $account->uid);
+		}
+
+		//cgsi_status_set_status($account, 'hold');
+
+		// Add the product_nid to the account object so we know what it is later.
+		$account->product_nid = $data['product_nid'];
+		$id = substr(md5($account->mail), 0, 10);
+		$_SESSION[$id] = serialize($account);
+
+		$form_state['redirect'] = 'signup/print/' . $id;
+	}
+
+	/**
+	 * Display a printable application form/invoice to the user. Create the users
+	 * account marked as blocked, and with a "hold" status.
+	 */
+	function cgsi_signup_print($id) {
+		if (isset($_SESSION[$id])) {
+			$account = unserialize($_SESSION[$id]);
+			//unset($_SESSION[$id]);
+			$product = node_load($account->product_nid);
+			$grand_total = $product->sell_price + $account->library_donation;
+			$donation_amount = $account->library_donation;
+
+			$theme_vars = array();
+			$theme_vars['account'] = $account;
+			$theme_vars['product'] = $product;
+			$theme_vars['grand_total'] = $grand_total;
+			$theme_vars['donation_amount'] = $donation_amount;
+
+			return theme('cgsi_signup_print', $theme_vars);
+		}
+		else {
+			drupal_goto('signup');
+		}
+	}
+
+	/**
+	 * Implement hook_mail().
+	 */
+	function cgsi_signup_mail($key, &$message, $params) {
+		$message['headers']['Content-Type'] = 'text/plain; charset=UTF-8; format=flowed; delsp=yes';
+		$message['subject'] = $params['subject'];
+		$message['body'][] = $params['body'];
+	}
+
+	/**
+	 * Implements hook_uc_order().
+	 */
+	function cgsi_signup_uc_order($op, $arg1, $arg2) {
+		$operation = $op;
+		switch ($op) {
+	  	case 'submit':
+	  		if (isset($arg1->products)){
+	  			// See if there are any "signup" products.
+	  			foreach ($arg1->products as $pkey => $product) {
+	  				if (isset($product->data['account_info'])) {
+	  					// If this is an anon. user purchase we need to create their account
+	  					// and update the order so that it is assigned to this new account.
+	  					$profile_info = $product->data['account_info'];
+	  					$mail = $profile_info['mail'];
+	  					$newName = $profile_info['name'];
+	  					$newPW = $profile_info['pass'];
+	  					
+							if (isset ( $mail ) && isset ( $newName ) && isset ( $newPW )) {
+								$newPW = user_hash_password(trim($newPW));
+								// db_query ( "UPDATE {users} SET pass = '%s', name = '%s' WHERE mail LIKE '%s'", $newPW, $newName, $mail );
+								
+								db_update ( 'users' )->fields ( array (
+										'pass' => $newPW,
+										'name' => $newName 
+								) )->condition ( 'mail', $mail )->execute ();
+							}
+							
+	  				}
+	  			}
+	  		}
+	      break;
+			case 'update':
+				if ($arg2 != $arg1->order_status && $arg2 == 'completed') {
+					// See if there are any "signup" products.
+					foreach ($arg1->products as $pkey => $product) {
+						if (isset($product->data['account_info'])) {
+							$profile_info = $product->data['account_info'];
+							// If this is an anon. user purchase we need to create their account
+							// and update the order so that it is assigned to this new account.
+							if ($arg1->uid == 0) {
+								$account_info = array(
+										'name' => $profile_info['name'],
+										'mail' => $profile_info['mail'],
+										'pass' => $profile_info['pass'],
+										'status' => 1,
+								);
+								$account = user_save('', $account_info);
+								$arg1->uid = $account->uid;
+								db_query("UPDATE {uc_orders} SET uid = %d, data = '%s' WHERE order_id = %d", $arg1->uid, serialize($arg1->data), $arg1->order_id);
+								// So that it is correct in e-mails, reciepts.
+								//$_SESSION['new_user'] = array('name' => $account->name, 'pass' => $profile_info['pass']);
+							}
+							else {
+								$account = user_load($arg1->uid);
+								$profile_info['profile_member_number'] = $account->profile_member_number;
+							}
+							// We only generate member numbers for new members.
+							if (empty($account->profile_member_number)) {
+								$profile_info['profile_member_number'] = cgsi_member_numbers_get_next();
+							}
+
+							// Save profile fields.
+							profile_save_profile($profile_info, $account, 'Member Information');
+							// If the user paid for their account online we need to flag it as such.
+							$profile_info['profile_payed_by_cc'] = 1;
+							// Save admin only profile fields.
+							_cgsi_signup_profile_save_profile($profile_info, $account, 'Account Information');
+							// Save donation information.
+							if (!empty($profile_info['donation'])) {
+								cgsi_donations_log_donation($account->uid, 'Sponsor donation', $profile_info['donation']);
+							}
+							if (!empty($profile_info['library_donation'])) {
+								cgsi_donations_log_donation($account->uid, 'Library donation', $profile_info['library_donation']);
+							}
+							unset($arg->products[$pkey]->data['account_info']);
+						}
+					}
+				}
+				break;
+		}
+	}
+
+	/**
+	 * Implement hook_FORM_ID_alter().
+	 *
+	 * Attempts to fill in the shipping address based on information that the user
+	 * entered when filling out the signup form.
+	 */
+
+	function cgsi_signup_form_uc_cart_checkout_form_alter(&$form, &$form_state) {
+		$saved_data = array();
+
+		foreach ($form_state['storage']['order']->products as $product) {
+			if (isset($product->data['account_info'])) {
+				$saved_data = $product->data['account_info'];
+				break;
+			}
+		}
+
+		$form['panes']['customer']['primary_email']['#default_value'] = $saved_data['mail'];
+
+		// Fill in Ubercart shipping address fields from $user profile of currently current user. Saves carpal tunnel.
+		$form['panes']['delivery']['address']['#default_value']->delivery_first_name = isset($saved_data['profile_first_name']) ? $saved_data['profile_first_name'] : '';
+		$form['panes']['delivery']['address']['#default_value']->delivery_last_name = isset($saved_data['profile_last_name']) ? $saved_data['profile_last_name'] : '';
+		$form['panes']['delivery']['address']['#default_value']->delivery_company = isset($saved_data['profile_company']) ? $saved_data['profile_company'] : '';
+		$form['panes']['delivery']['address']['#default_value']->delivery_street1 = isset($saved_data['profile_address_1']) ? $saved_data['profile_address_1'] : '';
+		$form['panes']['delivery']['address']['#default_value']->delivery_street2 = isset($saved_data['profile_address_2']) ? $saved_data['profile_address_2'] : '';
+		$form['panes']['delivery']['address']['#default_value']->delivery_city = isset($saved_data['profile_city']) ? $saved_data['profile_city'] : '';
+
+		// Attempt to map country name to a {uc_country}.country_id.
+		$country_id = db_select('uc_countries', 'c')->extend('PagerDefault')->limit(1)
+		->fields('c', array('country_id'))
+		->condition('country_name', $saved_data['profile_country'],'=')
+		->execute()->fetchField();
+
+		if ($country_id) $form['panes']['delivery']['address']['#default_value']->delivery_country = $country_id;
+
+		// Attempt to map state name to a {uc_zones}.zone_id.
+
+		// Equivalent to WHERE zone_code = profile_state OR zone_name = profile_state
+		$conditions = db_or()
+		->condition('zone_code', strtoupper($saved_data['profile_state']),'=')
+		->condition('zone_name', ucwords($saved_data['profile_state']),'=');
+
+		// Equivalent to appending AND zone_coutry_id = $country_id
+		if ($country_id) $conditions = db_and()->condition('zone_country_id', $country_id, '=')->condition($conditions);
+
+		$query = db_select('uc_zones', 'z')->extend('PagerDefault')->limit(1)
+		->fields('z', array('zone_id'))
+		->condition($conditions)
+		;
+		$zone_id = $query->execute()->fetchField();
+
+		$form['panes']['delivery']['address']['#default_value']->delivery_zone = $zone_id ? $zone_id : '';
+		$form['panes']['delivery']['address']['#default_value']->delivery_postal_code = isset($saved_data['profile_zipcode']) ? $saved_data['profile_zipcode'] : '';
+		$form['panes']['delivery']['address']['#default_value']->delivery_phone = isset($saved_data['profile_phone']) ? $saved_data['profile_phone'] : '';
+
+		// In case product is not shippable, also fill in Ubercart billing address fields from $user profile of currently current user. Saves carpal tunnel.
+		$form['panes']['billing']['address']['#default_value']->billing_first_name = isset($saved_data['profile_first_name']) ? $saved_data['profile_first_name'] : '';
+		$form['panes']['billing']['address']['#default_value']->billing_last_name = isset($saved_data['profile_last_name']) ? $saved_data['profile_last_name'] : '';
+		$form['panes']['billing']['address']['#default_value']->billing_company = isset($saved_data['profile_company']) ? $saved_data['profile_company'] : '';
+		$form['panes']['billing']['address']['#default_value']->billing_street1 = isset($saved_data['profile_address_1']) ? $saved_data['profile_address_1'] : '';
+		$form['panes']['billing']['address']['#default_value']->billing_street2 = isset($saved_data['profile_address_2']) ? $saved_data['profile_address_2'] : '';
+		$form['panes']['billing']['address']['#default_value']->billing_city = isset($saved_data['profile_city']) ? $saved_data['profile_city'] : '';
+		if ($country_id) $form['panes']['billing']['address']['#default_value']->billing_country = $country_id;
+		$form['panes']['billing']['address']['#default_value']->billing_zone = $zone_id ? $zone_id : '';
+		$form['panes']['billing']['address']['#default_value']->billing_postal_code = isset($saved_data['profile_zipcode']) ? $saved_data['profile_zipcode'] : '';
+		$form['panes']['billing']['address']['#default_value']->billing_phone = isset($saved_data['profile_phone']) ? $saved_data['profile_phone'] : '';
+
+		cgsi_signup_form_user_profile_form_alter($form, $form_state);
+	}
+
+
+	/**
+	 * Implement hook_form_FORM_ID_alter().
+	 */
+	function cgsi_signup_form_user_profile_form_alter(&$form, $form_state) {
+		// Make sure this only happens when this form is shown in the context of a
+		// user/* page.
+		if (arg(0) == 'user') {
+			$userName = $form_state['user']->name;
+			$titleString = t('Edit My Profile: @username', array('@username' => $userName));
+			drupal_set_title($titleString);
+		}
+
+		// Change name of main account fieldset on user/edit page.
+		//$form['account']['#title'] = t('Login information');
+
+		// Remove all the pesky #descriptions added by profile.module
+		if (isset($form['#user_category'])) {
+			$category = $form['#user_category'];
+			$fields = element_children($form[$category]);
+			foreach ($fields as $field_key) {
+				if (isset($form[$category][$field_key]['#description'])) {
+					$form[$category][$field_key]['#description'] = str_replace(' The content of this field is kept private and will not be shown publicly.', '', $form[$category][$field_key]['#description']);
+				}
+			}
+		}
+
+		// Adjust help text on account.mail edit field.
+		if (isset($form['login']['account']['mail'])) {
+			$form['login']['account']['mail']['#description'] = t('All emails from CGSI will be sent to this address.');
+		}
+
+		// Force expansion of uc_roles fieldset.
+		if (isset($form['uc_roles'])) {
+			$form['uc_roles']['#collapsible'] = FALSE;
+			unset($form['uc_roles']['#collapsed']);
+		}
+
+		// Flip the order of the uc_roles.module granularity select box for adding
+		// time to a members expiration date.
+		$children = element_children($form['uc_roles']['expirations']['table']);
+		foreach ($children as $child) {
+			if (isset($form['uc_roles']['expirations']['table'][$child]['granularity'])) {
+				$form['uc_roles']['expirations']['table'][$child]['granularity']['#options'] = array_reverse($form['uc_roles']['expirations']['table'][$child]['granularity']['#options']);
+			}
+		}
+	}
+
+	/**
+	 * This is copy of the profile_save_profile() function from profile.module that removes
+	 * the restriction on only being able to save content to fields that the current user
+	 * can view. Needed so we can save some calculated data into the members
+	 * 'Account Information' category.
+	 */
+	function _cgsi_signup_profile_save_profile(&$edit, &$user, $category) {
+		$fields = array('profile_member_number', 'profile_membership_level', 'profile_membership_term', 'profile_class_one_postage', 'profile_payed_by_cc', 'profile_membership_source');
+		$result = db_query("SELECT * FROM {profile_field} WHERE name IN ('" . implode("','", $fields) . "')");
+		foreach ($result as $field) {
+			if (_profile_field_serialize($field->type)) {
+				$edit[$field->name] = serialize($edit[$field->name]);
+			}
+			db_delete('profile_value')
+	  ->condition('uid', $user->uid)
+	  ->condition('fid', $field->fid)
+	  ->execute();
+			$id = db_insert('profile_value')
+			->fields(array(
+					'fid' => $field->fid,
+					'uid' => $user->uid,
+					'value' => $edit[$field->name],
+			))
+			->execute();
+			// Mark field as handled (prevents saving to user->data).
+			$edit[$field->name] = NULL;
+		}
+	}
+
+	/**
+	 * Helper function to convert membership products into a table to output for
+	 * users to select membership term/level.
+	 */
+	function _cgsi_signup_membership_product_table() {
+		$product_nids = _cgsi_signup_get_variable_names();
+		// Remove the last one it is the donation product, and not needed here.
+		array_pop($product_nids);
+
+		$options = array();
+		$elements['membership_product'] = array(
+				'#theme' => 'cgsi_signup_membership_table',
+		);
+
+		foreach ($product_nids as $var_name => $product) {
+			$nid = variable_get('cgsi_signup_' . $var_name . '_nid', FALSE);
+			$node = node_load($nid);
+			$options['cgsi_signup_' . $var_name . '_nid'] = '$' . ceil($node->sell_price);
+		}
+
+		$elements['membership_product']['membership_choices'] = array(
+				'#type' => 'radios',
+				'#title' => '',
+				'#options' => $options,
+				'#description' => t('<strong>Need 1st Class postage?:</strong> Our quarterly publication, <i>Nase rodina</i>, is sent out Special 3rd Class Bulk Rate to a single address. If you are a Snowbird or travel a lot, for an additional $10 <strong>per year</strong> you can choose 1st Class mailing membership to ensure receipt of <i>Nase rodina</i>.'),
+		);
+		return $elements;
+	}
+
+	function theme_cgsi_signup_membership_table($form) {
+		$rows = array();
+		$rows[] = array(
+				'data' => array(
+						array(
+								'data' => t('Membership Level and Term'),
+								'class' => array('heading'),
+								'colspan' => 4,
+						),
+				),
+				'class' => array('heading-row'),
+		);
+
+		$cur = '1 Year';
+		$i = 1;
+		$n = 1;
+
+		$children_us = array_keys($form[""]['membership_choices']['#options']);
+		// Slice it in half, second half is forrignn memberships.
+		$children_for = array_slice($children_us, 9);
+		$children_us = array_slice($children_us, 0, 9);
+
+		// Build US table.
+		$rows[] = array(
+				'data' => array(
+						t('Term'),
+						t('Individual'),
+						t('Household'),
+						t('Sponsor'),
+				),
+				'class' => array('heading'),
+		);
+
+		while (count($children_us)) {
+			if ($i == 1) {
+				$rows[$cur][] = $cur;
+			}
+
+			$rows[$cur][] = drupal_render($form[""]['membership_choices'][current($children_us)]);
+
+			if ($i == 3) {
+				$n++;
+				$cur = $n . ' Year';
+				$i = 0;
+			}
+
+			array_shift($children_us);
+			$i++;
+		}
+
+		$rows[] = array(
+				array('data' => t('US with 1st Class postage'), 'colspan' => 4, 'class' => 'heading-region'),
+		);
+
+		// Build Foreign table.
+		$rows[] = array(
+				'data' => array(
+						t('Term'),
+						t('Individual'),
+						t('Household'),
+						t('Sponsor'),
+				),
+				'class' => array('heading'),
+		);
+
+		$cur = '1 Year f';
+		$i = 1;
+		$n = 1;
+		while (count($children_for)) {
+			if ($i == 1) {
+				$rows[$cur][] = str_replace(' f', '', $cur);
+			}
+
+			$rows[$cur][] = drupal_render($form[""]['membership_choices'][current($children_for)]);
+
+			if ($i == 3) {
+				$n++;
+				$cur = $n . ' Year f';
+				$i = 0;
+			}
+
+			array_shift($children_for);
+			$i++;
+		}
+
+		$theme_vars = array();
+		$theme_vars['rows'] = $rows;
+		$theme_vars['attributes'] = array('id' => 'membership-table');
+		$theme_vars['empty'] = t('No membership types have been configured yet.');
+
+		$markup = theme('table', $theme_vars);
+		$markup .= drupal_render($form[""]['membership_choices']);
+
+		$divContent = '<div class="membership-table-wrapper">' . $markup . '</div>';
+
+		return $divContent;
+	}
+
+	/**
+	 * Get a list of variables stored in the {variables} table for this module.
+	 */
+	function _cgsi_signup_get_variable_names() {
+		$levels = _cgsi_signup_get_levels_array();
+		$terms = _cgsi_signup_get_terms_array();
+		$vars = array();
+
+		foreach ($terms as $term_num => $term) {
+			foreach ($levels as $level_num => $level) {
+				// US
+				$vars['cgsi_signup_us_' . $term_num . '_' . $level_num] = $term . ', ' . $level . ' - US';
+			}
+		}
+
+		foreach ($terms as $term_num => $term) {
+			foreach ($levels as $level_num => $level) {
+				// Other
+				$vars['cgsi_signup_for_' . $term_num . '_' . $level_num] = $term . ', ' . $level . ' - Forgien';
+			}
+		}
+
+		// Extras
+		//$vars['cgsi_signup_snowbird'] = 'Snowbird';
+		$vars['cgsi_signup_library_fund'] = 'Library Fund Donation';
+		return $vars;
+	}
+
+	function _cgsi_signup_map_variable_name_to_term_level($var) {
+		$terms = _cgsi_signup_get_terms_array();
+		$levels = _cgsi_signup_get_levels_array();
+		$var = str_replace('cgsi_signup_cgsi_signup_', '', $var);
+		$var = str_replace('_nid', '', $var);
+		$data = explode('_', $var);
+		return array(
+				'country' => $data[0],
+				'term' => $terms[$data[1]],
+				'level' => $levels[$data[2]],
+		);
+	}
+
+	function _cgsi_signup_get_terms_array() {
+		return array(0 => '1 year', 1 => '2 year', 2 => '3 year');
+	}
+
+	function _cgsi_signup_get_levels_array() {
+		return array(0 => 'Individual', 1 => 'Household', 2 => 'Sponsor');
+	}
+
+	function _cgsi_signup_process_form($form, &$form_state) {
+		$edit = $form_state['values'];
+
+		// Set Display Address to "1" if not yet set.
+		if (!isset($edit['profile_display_address'])) {
+			$edit['profile_display_address'] = "1";
+		}
+
+		// Lets figure out what membership level and term the user is requesting.
+		// And map it to an actual product on the site.
+		$variable_name = $form_state['values']['membership_choices'];
+		$term_level = _cgsi_signup_map_variable_name_to_term_level($variable_name);
+
+		// Calculate and save administrative information about this user.
+		// Set their level.
+		$edit['profile_membership_level'] = $term_level['level'];
+		// Set their term.
+		$edit['profile_membership_term'] = $term_level['term'];
+		// Set their postage type.
+		$edit['profile_class_one_postage'] = ($term_level['country'] == 'us') ? 0 : 1;
+		// Calculate their donation $$ if any.
+		// If they register at the sponsor level they are automatically making a donation.
+		if ($term_level['level'] == 'Sponsor') {
+			// Number of years this person is signing up for is the value of the
+			// _cgsi_signup_get_terms_array() key that matches, +1
+			$years = $membership_term[$term_level['term']] + 1;
+			if ($years > 2) {
+				$donation = ceil(15 * $years);
+			}
+			else {
+				$donation = ceil(20 * $years);
+			}
+		}
+		$edit['donation'] = $donation;
+
+		// Set their source as "Internet".
+		$edit['profile_membership_source'] = 'Internet';
+
+		// Unset some things we don't need before saving temporary data.
+		unset($edit['membership_choices'], $edit['form_build_id'], $edit['captcha'], $edit['captcha_sid'], $edit['captcha_response']);
+
+		// Encode the password before we save the temporary data for added security.
+		// $edit['pass'] = md5($edit['pass']);
+
+		// We know this works because we've already checked in our _validation callback.
+		$nid = variable_get($variable_name, FALSE);
+		return array('product_nid' => $nid, 'data' => $edit);
+	}
+
+	function cgsi_money_format($format , $number) {
+		if (function_exists("money_format")) return money_format($format, $number);
+		return number_format($number, 2);
+	}
+
+	/*
+	 function cgsi_signup_uc_cart_user_save(&$order, &$account) {
+	foreach ($order->products as $pkey => $product) {
+	if (isset($product->data['account_info'])) {
+	$profile_info = $product->data['account_info'];
+	$profile_info['status'] = 1;
+	user_save($account, $profile_info);
+
+	// Save profile fields.
+	profile_save_profile($profile_info, $account, 'Member Information');
+
+	// If the user paid for their account online we need to flag it as such.
+	$profile_info['profile_payed_by_cc'] = 1;
+	$profile_info['profile_member_number'] = cgsi_member_numbers_get_next();
+
+	// Save admin only profile fields.
+	_cgsi_signup_profile_save_profile($profile_info, $account, 'Account Information');
+
+	// Save donation information.
+	if (!empty($profile_info['donation'])) {
+	cgsi_donations_log_donation($account->uid, 'Sponsor donation', $profile_info['donation']);
+	}
+	if (!empty($profile_info['library_donation'])) {
+	cgsi_donations_log_donation($account->uid, 'Library donation', $profile_info['library_donation']);
+	}
+
+	unset($order->products[$pkey]->data['account_info']);
+	}
+	}
+	}
+	*/

@@ -1,0 +1,1304 @@
+985e846a878c0c400c6cf204bae524f8fa16ea72
+diff --git a/modules/cgsi_extras/cgsi_extras.module b/modules/cgsi_extras/cgsi_extras.module
+index b9c676e..2e22238 100644
+--- a/modules/cgsi_extras/cgsi_extras.module
++++ b/modules/cgsi_extras/cgsi_extras.module
+@@ -43,28 +43,28 @@ function cgsi_extras_menu_alter(&$items) {
+   $items['search/user']['access callback'] = 'user_access';
+   $items['search/user']['access arguments'] = array('administer users');
+ }
++
++/**
++ * Implement hook_block_view().
++ */
++function cgsi_extras_block_view($delta) {
++	return array(
++		'subject' => t('User acccount number & expiration date')
++		, 'content' => _cgsi_extras_user_account_block()
++	);
++}
+ 
+ /**
+- * Implement hook_block().
++ * Implement hook_block_info().
+  */
+-function cgsi_extras_block($op = 'list', $delta = 0, $edit = array()) {
+-  switch ($op) {
+-    case 'list':
+-      $blocks[0] = array(
++function cgsi_extras_block_info() {
++      $blocks = array(
+         'info' => t('User account number & expiration date'),
+         'weight' => 0,
+         'status' => 0,
+         'region' => NULL,
+       );
+       return $blocks;
+-    case 'view':
+-      switch ($delta) {
+-        case 0:
+-          $block = array('subject' => t('User acccount number & expiration date'));
+-          $block['content'] = _cgsi_extras_user_account_block();
+-      }
+-      return $block;
+-  }
+ }
+ 
+ /**
+@@ -137,8 +137,8 @@ function cgsi_extras_form_user_profile_form_alter(&$form, $form_state, $form_id)
+   $form['account']['#title'] = t('Login information');
+ 
+   // Remove all the pesky #descriptions added by profile.module
+-  if (isset($form['_category']['#value'])) {
+-    $category = $form['_category']['#value'];
++  if (isset($form['#user_category'])) {
++    $category = $form['#user_category'];
+     $fields = element_children($form[$category]);
+     foreach ($fields as $field_key) {
+       if (isset($form[$category][$field_key]['#description'])) {
+@@ -165,7 +165,7 @@ function cgsi_extras_form_user_profile_form_alter(&$form, $form_state, $form_id)
+     if (isset($form['uc_roles']['expirations']['table'][$child]['granularity'])) {
+       $form['uc_roles']['expirations']['table'][$child]['granularity']['#options'] = array_reverse($form['uc_roles']['expirations']['table'][$child]['granularity']['#options']);
+     }
+-  }
++  } 
+ }
+ 
+ /**
+@@ -378,7 +378,7 @@ function cgsi_extras_user($op, &$edit, &$account, $category = NULL) {
+       uc_cart_empty(uc_cart_get_id());
+       break;
+     case 'view':
+-      // Add e-mail address to the member informaiton fields.
++      // Add e-mail address to the member information fields.
+       $account->content['Member Information']['mail'] = array(
+         '#type' => 'user_profile_item',
+         '#title' => t('email'),
+diff --git a/modules/cgsi_member_numbers/cgsi_member_numbers.module b/modules/cgsi_member_numbers/cgsi_member_numbers.module
+index 7d3080b..1d302ae 100644
+--- a/modules/cgsi_member_numbers/cgsi_member_numbers.module
++++ b/modules/cgsi_member_numbers/cgsi_member_numbers.module
+@@ -122,7 +122,7 @@ function cgsi_member_numbers_token_values($type, $object = NULL, $options = arra
+  */
+ function cgsi_member_numbers_views_query_alter(&$view, &$query) {
+   foreach ($query->orderby as $key => $value) {
+-    if (strpos($value, 'profile_values_profile_member_number_value') !== FALSE) {
++    if (strpos($value['field'], 'profile_values_profile_member_number_value') !== FALSE) {
+       $query->orderby[$key] = str_replace('profile_values_profile_member_number_value', '(profile_values_profile_member_number_value + 0)', $value);
+     }
+   }
+diff --git a/modules/ubercart/joe-ubercart-all_changes.patch b/modules/ubercart/joe-ubercart-all_changes.patch
+index dd7e3e2..f2cf2a3 100644
+--- a/modules/ubercart/joe-ubercart-all_changes.patch
++++ b/modules/ubercart/joe-ubercart-all_changes.patch
+@@ -23,6 +23,9 @@ index a73683e..f56df0a 100644
+        foreach ($item->data['attributes'] as $aid => $value) {
+          if (is_numeric($value)) {
+            $attribute = uc_attribute_load($aid, $item->nid, 'product');
++
++MFS 2014-03-30
++
+ diff --git sites/default/modules/ubercart/uc_cart/uc_cart.module sites/default/modules/ubercart/uc_cart/uc_cart.module
+ index 47df042..c75eff9 100644
+ --- sites/default/modules/ubercart/uc_cart/uc_cart.module
+@@ -48,6 +51,9 @@ index 47df042..c75eff9 100644
+        // Update the order's uid in this request and in the database.
+        $order->uid = $account->uid;
+        unset($order->data['new_user']['pass']);
++
++MFS 2014-03-03 no longer used
++
+ diff --git sites/default/modules/ubercart/uc_roles/uc_roles.ca.inc sites/default/modules/ubercart/uc_roles/uc_roles.ca.inc
+ index caae5f9..d5013da 100644
+ --- sites/default/modules/ubercart/uc_roles/uc_roles.ca.inc
+@@ -128,6 +134,8 @@ index caae5f9..d5013da 100644
+  
+    return $triggers;
+  }
++
++MFS 20140407 -- need to test somehow
+ diff --git sites/default/modules/ubercart/uc_roles/uc_roles.install sites/default/modules/ubercart/uc_roles/uc_roles.install
+ index d0be153..ebf779d 100644
+ --- sites/default/modules/ubercart/uc_roles/uc_roles.install
+@@ -240,6 +248,10 @@ index d0be153..ebf779d 100644
+ +  db_drop_field($ret, 'uc_roles_expirations', 'notified');
+ +  return $ret;
+ +}
++
++
++MFS 20140414 -- migrated
++
+ diff --git sites/default/modules/ubercart/uc_roles/uc_roles.module sites/default/modules/ubercart/uc_roles/uc_roles.module
+ index 5cf474b..c7469fe 100644
+ --- sites/default/modules/ubercart/uc_roles/uc_roles.module
+@@ -292,6 +304,10 @@ index 5cf474b..c7469fe 100644
+        }
+      }
+    }
++
++MFS 20140414 -- coded, but not tested
++
++
+ @@ -385,7 +390,7 @@ function uc_roles_user_submit(&$edit, &$account, $category) {
+          $qty = $value['qty'];
+          $qty *= $value['polarity'] == 'add' ? 1 : -1;
+@@ -392,6 +408,7 @@ index 5cf474b..c7469fe 100644
+    return $form;
+  }
+  
++
+ +/**
+ + * Validation callback for uc_roles_add_reminder submit button on
+ + * uc_roles_feature_settings form.
+@@ -414,6 +431,7 @@ index 5cf474b..c7469fe 100644
+ +  drupal_set_message(t('New reminder %name created', array('%name' => $form_state['values']['new_reminder_name'])));
+ +}
+ +
++MFS 20140416 coded but not tested
+  /******************************************************************************
+   * Module and Helper Functions                                                *
+   ******************************************************************************/
+@@ -461,7 +479,7 @@ index 5cf474b..c7469fe 100644
+ +
+    // Update the expiration date.
+    db_query("UPDATE {uc_roles_expirations} SET expiration = %d WHERE uid = %d AND rid = %d", $timestamp, $account->uid, $rid);
+-+  uc_roles_queue_reminders($account, $rid);
+++  	uc_roles_queue_reminders($account, $rid);
+ +
+ +  // Allow other modules to act on role renwal.
+ +  module_invoke_all('uc_roles_renew', $account, $rid, $timestamp, $existing_role->expiration);
+@@ -471,21 +489,21 @@ index 5cf474b..c7469fe 100644
+ @@ -1299,6 +1383,22 @@ function uc_roles_renew($account, $rid, $timestamp, $silent = FALSE) {
+  }
+  
+- /**
+-+ * Queue all reminders when granting/renewing a role.
+-+ *
+-+ * @param $account
+-+ *   A Drupal user object.
+-+ * @param $rid
+-+ *   ID of the role the $account should be reminded about.
+-+ */
+-+function uc_roles_queue_reminders($account, $rid) {
+-+  $reminders = variable_get('uc_roles_reminders', array());
+-+  db_query('DELETE FROM {uc_roles_reminders} WHERE uid = %d AND rid = %d', $account->uid, $rid);
+-+  foreach ($reminders as $reminder) {
+-+    db_query('INSERT INTO {uc_roles_reminders} (uid, rid, reminder) VALUES (%d, %d, "%s")', $account->uid, $rid, $reminder);
+-+  }
+-+}
++	 /**
++	+ * Queue all reminders when granting/renewing a role.
++	+ *
++	+ * @param $account
++	+ *   A Drupal user object.
++	+ * @param $rid
++	+ *   ID of the role the $account should be reminded about.
++	+ */
++	+function uc_roles_queue_reminders($account, $rid) {
++	+  $reminders = variable_get('uc_roles_reminders', array());
++	+  db_query('DELETE FROM {uc_roles_reminders} WHERE uid = %d AND rid = %d', $account->uid, $rid);
++	+  foreach ($reminders as $reminder) {
++	+    db_query('INSERT INTO {uc_roles_reminders} (uid, rid, reminder) VALUES (%d, %d, "%s")', $account->uid, $rid, $reminder);
++	+  }
++	+}
+ +
+ +/**
+   * Flush the menu cache.
+diff --git a/modules/ubercart/joe-ubercart-all_changes.patch~ b/modules/ubercart/joe-ubercart-all_changes.patch~
+new file mode 100644
+index 0000000..5842216
+--- /dev/null
++++ b/modules/ubercart/joe-ubercart-all_changes.patch~
+@@ -0,0 +1,535 @@
++diff --git sites/default/modules/ubercart/payment/uc_credit/uc_credit.module sites/default/modules/ubercart/payment/uc_credit/uc_credit.module
++index c99914f..c912aa3 100644
++--- sites/default/modules/ubercart/payment/uc_credit/uc_credit.module
+++++ sites/default/modules/ubercart/payment/uc_credit/uc_credit.module
++@@ -381,7 +381,7 @@ function uc_credit_payment_method() {
++   }
++   $methods[] = array(
++     'id' => 'credit',
++-    'name' => t('Credit card'),
+++    'name' => t('Pay online by credit card'),
++     'title' => $title,
++     'desc' => t('Pay by credit card.'),
++     'callback' => 'uc_payment_method_credit',
++diff --git sites/default/modules/ubercart/uc_attribute/uc_attribute.module sites/default/modules/ubercart/uc_attribute/uc_attribute.module
++index a73683e..f56df0a 100644
++--- sites/default/modules/ubercart/uc_attribute/uc_attribute.module
+++++ sites/default/modules/ubercart/uc_attribute/uc_attribute.module
++@@ -468,6 +468,7 @@ function uc_attribute_cart_item($op, &$item) {
++       $item->weight += $op_weight;
++ 
++       $combination = array();
+++
++       foreach ($item->data['attributes'] as $aid => $value) {
++         if (is_numeric($value)) {
++           $attribute = uc_attribute_load($aid, $item->nid, 'product');
++
++MFS 2014-03-30
++
++diff --git sites/default/modules/ubercart/uc_cart/uc_cart.module sites/default/modules/ubercart/uc_cart/uc_cart.module
++index 47df042..c75eff9 100644
++--- sites/default/modules/ubercart/uc_cart/uc_cart.module
+++++ sites/default/modules/ubercart/uc_cart/uc_cart.module
++@@ -1220,6 +1220,10 @@ function uc_cart_complete_sale($order, $login = FALSE) {
++         'roles' => array(),
++         'status' => variable_get('uc_new_customer_status_active', TRUE) ? 1 : 0,
++       );
+++
+++      // Store the login details in the session for use on the page display.
+++      $_SESSION['new_user'] = array('name' => $fields['name'], 'pass' => $fields['pass']);
+++
++       $account = user_save('', $fields);
++ 
++       // Send the customer their account details if enabled.
++@@ -1231,9 +1235,6 @@ function uc_cart_complete_sale($order, $login = FALSE) {
++         drupal_mail('user', 'register_no_approval_required', $order->primary_email, NULL, array('account' => $account), uc_store_email_from());
++       }
++ 
++-      // Store the login details in the session for use on the page display.
++-      $_SESSION['new_user'] = array('name' => $fields['name'], 'pass' => $fields['pass']);
++-
++       // Update the order's uid in this request and in the database.
++       $order->uid = $account->uid;
++       unset($order->data['new_user']['pass']);
++
++MFS 2014-03-03 no longer used
++
++diff --git sites/default/modules/ubercart/uc_roles/uc_roles.ca.inc sites/default/modules/ubercart/uc_roles/uc_roles.ca.inc
++index caae5f9..d5013da 100644
++--- sites/default/modules/ubercart/uc_roles/uc_roles.ca.inc
+++++ sites/default/modules/ubercart/uc_roles/uc_roles.ca.inc
++@@ -160,27 +160,30 @@ function uc_roles_ca_predicate() {
++   );
++ 
++   // Notify the user when a role is about to expire.
++-  $predicates['uc_role_notify_reminder'] = array(
++-    '#title' => t('Notify customer when a role is about to expire'),
++-    '#description' => t('Notify the customer when they have had a role that is about to expire.'),
++-    '#class' => 'notification',
++-    '#trigger' => 'uc_roles_notify_reminder',
++-    '#status' => 1,
++-    '#actions' => array(
++-      array(
++-        '#name' => 'uc_roles_user_email',
++-        '#title' => t('Send an e-mail to the customer'),
++-        '#argument_map' => $user_args,
++-        '#settings' => array(
++-          'from' => uc_store_email_from(),
++-          'addresses' => '[mail]',
++-          'subject' => uc_get_message('uc_roles_reminder_subject'),
++-          'message' => uc_get_message('uc_roles_reminder_message'),
++-          'format' => 1,
+++  $reminders = variable_get('uc_roles_reminders', array());
+++  foreach ($reminders as $reminder) {
+++    $predicates['uc_role_notify_reminder_' . $reminder] = array(
+++      '#title' => t('Notify customer when a role is about to expire'),
+++      '#description' => t('Notify the customer when they have had a role that is about to expire.'),
+++      '#class' => 'notification',
+++      '#trigger' => 'uc_roles_notify_reminder_' . $reminder,
+++      '#status' => 1,
+++      '#actions' => array(
+++        array(
+++          '#name' => 'uc_roles_user_email',
+++          '#title' => t('Send an e-mail to the customer'),
+++          '#argument_map' => $user_args,
+++          '#settings' => array(
+++            'from' => uc_store_email_from(),
+++            'addresses' => '[user-mail]',
+++            'subject' => uc_get_message('uc_roles_reminder_subject'),
+++            'message' => uc_get_message('uc_roles_reminder_message'),
+++            'format' => 1,
+++          ),
++         ),
++       ),
++-    ),
++-  );
+++    );
+++  }
++ 
++   return $predicates;
++ }
++@@ -283,14 +286,17 @@ function uc_roles_ca_trigger() {
++     ),
++   );
++ 
++-  $triggers['uc_roles_notify_reminder'] = array(
++-    '#title' => t('E-mail for role expiration reminders'),
++-    '#category' => t('Notification'),
++-    '#arguments' => array(
++-      'account' => $account,
++-      'expiration' => $expiration,
++-    ),
++-  );
+++  $reminders = variable_get('uc_roles_reminders', array());
+++  foreach ($reminders as $reminder) {
+++    $triggers['uc_roles_notify_reminder_' . $reminder] = array(
+++      '#title' => t('E-mail for role expiration reminders (@name)', array('@name' => $reminder)),
+++      '#category' => t('Notification'),
+++      '#arguments' => array(
+++        'account' => $account,
+++        'expiration' => $expiration,
+++      ),
+++    );
+++  }
++ 
++   return $triggers;
++ }
++
++MFS 20140407 -- need to test somehow
++diff --git sites/default/modules/ubercart/uc_roles/uc_roles.install sites/default/modules/ubercart/uc_roles/uc_roles.install
++index d0be153..ebf779d 100644
++--- sites/default/modules/ubercart/uc_roles/uc_roles.install
+++++ sites/default/modules/ubercart/uc_roles/uc_roles.install
++@@ -134,10 +134,6 @@ function uc_roles_schema() {
++         'not null' => TRUE,
++         'default' => 0,
++       ),
++-      'notified' => array(
++-        'type' => 'int',
++-        'size' => 'tiny',
++-      ),
++     ),
++     'indexes' => array(
++       'uid' => array('uid'),
++@@ -146,6 +142,32 @@ function uc_roles_schema() {
++     'primary key' => array('reid'),
++   );
++ 
+++  $schema['uc_roles_reminders'] = array(
+++    'fields' => array(
+++      'uid' => array(
+++        'description' => t('The user id.'),
+++        'type' => 'int',
+++        'unsigned' => TRUE,
+++        'not null' => TRUE,
+++        'default' => 0,
+++      ),
+++      'rid' => array(
+++        'description' => t('The role id.'),
+++        'type' => 'int',
+++        'unsigned' => TRUE,
+++        'not null' => TRUE,
+++        'default' => 0,
+++      ),
+++      'reminder' => array(
+++        'description' => t('Reminder name'),
+++        'type' => 'varchar',
+++        'length' => 128,
+++        'default' => NULL,
+++      ),
+++    ),
+++    'indexes' => array('ur' => array('uid', 'reminder')),
+++  );
+++
++   return $schema;
++ }
++ 
++@@ -277,3 +299,63 @@ function uc_roles_update_6004() {
++   return $ret;
++ }
++ 
+++/** 
+++ * Add table to allow tracking the notified status for multiple reminders.
+++ */
+++function uc_roles_update_6005() {
+++  $ret = array();
+++
+++  // Create a 'default' reminder based off the old reminder.
+++  $reminders = array('default');
+++  variable_set('uc_roles_reminders', $reminders);
+++  $reminder_granularity = variable_get('uc_roles_reminder_granularity', 'never');
+++  variable_set('uc_roles_reminder_granularity:default', $reminder_granularity);
+++  variable_del('uc_roles_reminder_granularity');
+++  $reminder_qty = variable_get('uc_roles_reminder_length', NULL);
+++  variable_set('uc_roles_reminder_length:default', $reminder_qty);
+++  variable_del('uc_roles_reminder_length');
+++
+++  $schema['uc_roles_reminders'] = array(
+++    'fields' => array(
+++      'uid' => array(
+++        'description' => t('The user id.'),
+++        'type' => 'int',
+++        'unsigned' => TRUE,
+++        'not null' => TRUE,
+++        'default' => 0,
+++      ),
+++      'rid' => array(
+++        'description' => t('The role id.'),
+++        'type' => 'int',
+++        'unsigned' => TRUE,
+++        'not null' => TRUE,
+++        'default' => 0,
+++      ),
+++      'reminder' => array(
+++        'description' => t('Reminder name'),
+++        'type' => 'varchar',
+++        'length' => 128,
+++        'default' => NULL,
+++      ),
+++    ),
+++    'indexes' => array('ur' => array('uid', 'reminder')),
+++  );
+++
+++  if (!db_table_exists('uc_roles_reminders')) {
+++    db_create_table($ret, 'uc_roles_reminders', $schema['uc_roles_reminders']);
+++  }
+++
+++  // Find all users that need a reminder still and add them to the new
+++  // {uc_roles_reminders} table.
+++  $results = db_query('SELECT * FROM {uc_roles_expirations} WHERE ISNULL(notified)');
+++  while ($row = db_fetch_object($results)) {
+++    $ret[] = update_sql("INSERT INTO {uc_roles_reminders} (uid, rid, reminder) VALUES (" . $row->uid . ", " . $row->rid . ", 'default')");
+++  }
+++
+++  // Update the {ca_predicates} table.
+++  $ret[] = update_sql("UPDATE {ca_predicates} SET pid = 'uc_role_notify_reminder_default', ca_trigger = 'uc_role_notify_reminder_default' WHERE pid = 'uc_role_notify_reminder'");
+++
+++  // Remove no longer needed {uc_roles_expirations}.notified field.
+++  db_drop_field($ret, 'uc_roles_expirations', 'notified');
+++  return $ret;
+++}
++
++
++MFS 20140414 -- migrated
++
++diff --git sites/default/modules/ubercart/uc_roles/uc_roles.module sites/default/modules/ubercart/uc_roles/uc_roles.module
++index 5cf474b..c7469fe 100644
++--- sites/default/modules/ubercart/uc_roles/uc_roles.module
+++++ sites/default/modules/ubercart/uc_roles/uc_roles.module
++@@ -36,9 +36,6 @@ function uc_roles_help($path, $arg) {
++  * Implementation of hook_cron().
++  */
++ function uc_roles_cron() {
++-  $reminder_granularity = variable_get('uc_roles_reminder_granularity', 'never');
++-  $reminder_qty = variable_get('uc_roles_reminder_length', NULL);
++-
++   $result = db_query("SELECT * FROM {uc_roles_expirations}");
++   while ($expiration = db_fetch_object($result)) {
++     $account = user_load($expiration->uid);
++@@ -59,18 +56,26 @@ function uc_roles_cron() {
++       ca_pull_trigger('uc_roles_notify_revoke', $account, $expiration);
++     }
++ 
++-    // Remind the user about an upcoming expiration.
++-    elseif ($reminder_granularity != 'never') {
++-      // Only if not already notified.
++-      if (intval($expiration->notified) >= 1) {
++-        continue;
+++    $reminders = variable_get('uc_roles_reminders', array());
+++    $rows = array();
+++    if (count($reminders)) {
+++      foreach ($reminders as $reminder) {
+++        $granularity = variable_get('uc_roles_reminder_granularity:' . $reminder, NULL);
+++        $qty = variable_get('uc_roles_reminder_length:' . $reminder, NULL);
+++        if ($granularity && is_numeric($qty)) {
+++          $timestamp = strtotime('+' . $qty . ' ' . $granularity);
+++          $results = db_query('SELECT * FROM {uc_roles_expirations} ue INNER JOIN {uc_roles_reminders} ur ON ur.uid = ue.uid WHERE ur.reminder = "%s" AND  ue.expiration < %d', $reminder, $timestamp);
+++          while ($row = db_fetch_object($results)) {
+++            $rows[] = $row;
+++          }
+++        }
++       }
++-
++-      // If we're past the expiration time minus the reminder time.
++-      $threshold = _uc_roles_get_expiration(-$reminder_qty, $reminder_granularity, $expiration->expiration);
++-      if ($threshold <= time()) {
++-        ca_pull_trigger('uc_roles_notify_reminder', $account, $expiration);
++-        db_query("UPDATE {uc_roles_expirations} SET notified = 1 WHERE uid = %d AND rid = %d", $account->uid, $expiration->rid);
+++      if (count($rows)) {
+++        foreach ($rows as $row) {
+++          $account = user_load($row->uid);
+++          ca_pull_trigger('uc_roles_notify_reminder_'. $row->reminder, $account, $row);
+++          db_query('DELETE FROM {uc_roles_reminders} WHERE uid = %d AND reminder = "%s"', $row->uid, $row->reminder);
+++        }
++       }
++     }
++   }
++
++MFS 20140414 -- coded, but not tested
++
++
++@@ -385,7 +390,7 @@ function uc_roles_user_submit(&$edit, &$account, $category) {
++         $qty = $value['qty'];
++         $qty *= $value['polarity'] == 'add' ? 1 : -1;
++ 
++-        uc_roles_renew($account, $rid, _uc_roles_get_expiration($qty, $value['granularity'], $value['expiration']));
+++        uc_roles_renew($account, $rid, _uc_roles_get_expiration($qty, $value['granularity'], $value['expiration'], FALSE));
++       }
++     }
++   }
++@@ -987,29 +992,66 @@ function uc_roles_feature_settings() {
++     '#description' => t('Check if the role duration should be multiplied by the quantity purchased.'),
++     '#default_value' => variable_get('uc_roles_default_by_quantity', FALSE),
++   );
++-  $form['reminder']['uc_roles_reminder_length'] = array(
+++
+++  $reminders = variable_get('uc_roles_reminders', array());
+++  
+++  $form['reminders'] = array(
+++    '#type' => 'fieldset',
+++    '#title' => t('Configure reminders'),
+++    '#description' => t('Each reminder configured below will show up as a conditional actions predicate and can be used to schedule sending of e-mails to remind users of an expiring role.'),
+++  );
+++
+++  foreach ($reminders as $reminder) {
+++    $form['reminders'][$reminder] = array(
+++      '#type' => 'fieldset',
+++      '#title' => $reminder,
+++    );
+++    $form['reminders'][$reminder]['uc_roles_reminder_length:' . $reminder] = array(
+++      '#type' => 'textfield',
+++      '#title' => t('Time before reminder'),
+++      '#default_value' => (variable_get('uc_roles_reminder_granularity:' . $reminder, 'never') == 'never') ? NULL : variable_get('uc_roles_reminder_length:' . $reminder, NULL),
+++      '#size' => 4,
+++      '#maxlength' => 4,
+++      '#prefix' => '<div class="expiration">',
+++      '#suffix' => '</div>',
+++    );
+++    $form['reminders'][$reminder]['uc_roles_reminder_granularity:' . $reminder] = array(
+++      '#type' => 'select',
+++      '#default_value' => variable_get('uc_roles_reminder_granularity:' . $reminder, 'never'),
+++      '#options' => array(
+++        'never' => t('never'),
+++        'day' => t('day(s)'),
+++        'week' => t('week(s)'),
+++        'month' => t('month(s)'),
+++        'year' => t('year(s)')
+++      ),
+++      '#description' => t('The amount of time before a role expiration takes place that a customer is notified of its expiration.'),
+++      '#prefix' => '<div class="expiration">',
+++      '#suffix' => '</div>',
+++    );
+++    $form['reminders'][$reminder]['uc_roles_reminder_config:' . $reminder] = array(
+++      '#type' => 'markup',
+++      '#value' => l(t('Configure this reminder\'s conditions and actions'), 'admin/store/ca/uc_role_notify_reminder_' . $reminder . '/edit'),
+++    );
+++  }
+++
+++  $form['reminders']['new_reminder'] = array(
+++    '#type' => 'fieldset',
+++    '#title' => t('Add a new reminder'),
+++  );
+++  $form['reminders']['new_reminder']['new_reminder_name'] = array(
++     '#type' => 'textfield',
++-    '#title' => t('Time before reminder'),
++-    '#default_value' => (variable_get('uc_roles_reminder_granularity', 'never') == 'never') ? NULL : variable_get('uc_roles_reminder_length', NULL),
++-    '#size' => 4,
++-    '#maxlength' => 4,
++-    '#prefix' => '<div class="expiration">',
++-    '#suffix' => '</div>',
+++    '#title' => t('Reminder name'),
+++    '#description' => t('This name must contain only lowercase letters, numbers, and underscores.'),
+++    
++   );
++-  $form['reminder']['uc_roles_reminder_granularity'] = array(
++-    '#type' => 'select',
++-    '#default_value' => variable_get('uc_roles_reminder_granularity', 'never'),
++-    '#options' => array(
++-      'never' => t('never'),
++-      'day' => t('day(s)'),
++-      'week' => t('week(s)'),
++-      'month' => t('month(s)'),
++-      'year' => t('year(s)')
++-    ),
++-    '#description' => t('The amount of time before a role expiration takes place that a customer is notified of its expiration.'),
++-    '#prefix' => '<div class="expiration">',
++-    '#suffix' => '</div>',
+++  $form['reminders']['new_reminder']['new_reminder_submit'] = array(
+++    '#type' => 'submit',
+++    '#value' => t('Add reminder'),
+++    '#submit' => array('uc_roles_add_reminder_submit'),
+++    '#validate' => array('uc_roles_add_reminder_validate'),
++   );
+++
++   $form['uc_roles_expiration_display'] = array(
++     '#type' => 'fieldset',
++     '#title' => t('Expiration display'),
++@@ -1041,6 +1083,28 @@ function uc_roles_feature_settings() {
++   return $form;
++ }
++ 
+++/**
+++ * Validation callback for uc_roles_add_reminder submit button on
+++ * uc_roles_feature_settings form.
+++ */
+++function uc_roles_add_reminder_validate($form, &$form_state) {
+++  if (!preg_match('!^[a-z0-9_]+$!', $form_state['values']['new_reminder_name'])) {
+++    form_set_error('new_reminder_name', t('The reminder name must contain only lowercase letters, numbers, and underscores.'));
+++  }
+++  
+++  $reminders = variable_get('uc_roles_reminders', array());
+++  if (in_array($form_state['values']['new_reminder_name'], $reminders)) {
+++    form_set_error('new_reminder_name', t('The reminder name %name is already in use.', array('%name' => $form_state['values']['new_reminder_name'])));
+++  }
+++}
+++
+++function uc_roles_add_reminder_submit($form, &$form_state) {
+++  $reminders = variable_get('uc_roles_reminders', array());
+++  $reminders[] = $form_state['values']['new_reminder_name'];
+++  variable_set('uc_roles_reminders', $reminders);
+++  drupal_set_message(t('New reminder %name created', array('%name' => $form_state['values']['new_reminder_name'])));
+++}
+++
++ /******************************************************************************
++  * Module and Helper Functions                                                *
++  ******************************************************************************/
++@@ -1138,6 +1202,7 @@ function uc_roles_delete($account, $rid = NULL, $silent = FALSE) {
++   }
++ 
++   db_query("DELETE FROM {uc_roles_expirations} WHERE ". $condition_list);
+++  db_query("DELETE FROM {uc_roles_reminders} WHERE " . $condition_list);
++ 
++   // Echo the deletion only if something was actually deleted.
++   if (db_affected_rows() && !$silent) {
++@@ -1181,6 +1246,10 @@ function uc_roles_revoke($account, $rid, $silent = FALSE) {
++   // Remove our record of the expiration.
++   uc_roles_delete($account, $rid);
++ 
+++  // Notify other modules that the roles has been revoked.
+++  module_invoke_all('uc_roles_revoke', $account, $rid);
+++
+++
++   $role_name = db_result(db_query('SELECT name FROM {role} WHERE rid = %d', $rid));
++ 
++   if (!$silent) {
++@@ -1228,7 +1297,16 @@ function uc_roles_grant(&$account, $rid, $timestamp, $save_user = TRUE, $silent
++ 
++   // If the role expires, keep a record.
++   if (!is_null($timestamp)) {
+++    // Does the user already have the role?
+++    $existing_role = db_fetch_object(db_query("SELECT * FROM {uc_roles_expirations} WHERE uid = %d AND rid = %d", $account->uid, $role->rid));
+++    if ($existing_role->expiration) {
+++      module_invoke_all('uc_roles_renew', $account, $rid, $timestamp, $existing_role->expiration);
+++    }
+++    else {
+++      module_invoke_all('uc_roles_new', $account, $rid, $timestamp);
+++    }
++     db_query("INSERT INTO {uc_roles_expirations} (uid, rid, expiration) VALUES (%d, %d, %d)", $account->uid, $rid, $timestamp);
+++    uc_roles_queue_reminders($account, $rid);
++   }
++ 
++   // Flush visible menu items, since our permissions could've changed.
++@@ -1282,8 +1360,14 @@ function uc_roles_renew($account, $rid, $timestamp, $silent = FALSE) {
++     return;
++   }
++ 
+++  $existing_role = db_fetch_object(db_query("SELECT * FROM {uc_roles_expirations} WHERE uid = %d AND rid = %d", $account->uid, $rid));
+++
++   // Update the expiration date.
++   db_query("UPDATE {uc_roles_expirations} SET expiration = %d WHERE uid = %d AND rid = %d", $timestamp, $account->uid, $rid);
+++  uc_roles_queue_reminders($account, $rid);
+++
+++  // Allow other modules to act on role renwal.
+++  module_invoke_all('uc_roles_renew', $account, $rid, $timestamp, $existing_role->expiration);
++ 
++   if (!$silent) {
++     $role_name = db_result(db_query('SELECT name FROM {role} WHERE rid = %d', $rid));
++@@ -1299,6 +1383,22 @@ function uc_roles_renew($account, $rid, $timestamp, $silent = FALSE) {
++ }
++ 
++ /**
+++ * Queue all reminders when granting/renewing a role.
+++ *
+++ * @param $account
+++ *   A Drupal user object.
+++ * @param $rid
+++ *   ID of the role the $account should be reminded about.
+++ */
+++function uc_roles_queue_reminders($account, $rid) {
+++  $reminders = variable_get('uc_roles_reminders', array());
+++  db_query('DELETE FROM {uc_roles_reminders} WHERE uid = %d AND rid = %d', $account->uid, $rid);
+++  foreach ($reminders as $reminder) {
+++    db_query('INSERT INTO {uc_roles_reminders} (uid, rid, reminder) VALUES (%d, %d, "%s")', $account->uid, $rid, $reminder);
+++  }
+++}
+++
+++/**
++  * Flush the menu cache.
++  *
++  * @param $account
++@@ -1369,7 +1469,7 @@ function _uc_roles_product_get_expiration($role_product, $quantity, $time) {
++  * @return:
++  *   A UNIX timestamp representing the second that expiration takes place
++  */
++-function _uc_roles_get_expiration($duration, $granularity, $start_time = NULL) {
+++function _uc_roles_get_expiration($duration, $granularity, $start_time = NULL, $adjustments = TRUE) {
++   // Never expires?
++   if ($granularity == 'never') {
++     return NULL;
++@@ -1378,5 +1478,15 @@ function _uc_roles_get_expiration($duration, $granularity, $start_time = NULL) {
++   $start_time = (!is_null($start_time)) ? $start_time : time();
++   $operator = ($duration < 0) ? '' : '+';
++ 
++-  return strtotime($operator . $duration .' '. $granularity, $start_time);
+++  $expiration = strtotime($operator . $duration .' '. $granularity, $start_time);
+++  
+++  if ($adjustments) {
+++    // Round this up to the end of the month.
+++    // Last day of the month.
+++    $expiration = mktime(0, 0, 0, date('m', $expiration), date('t', $expiration), date('Y', $expiration));
+++    // Add 10 days for grace period.
+++    $expiration = $expiration + (60 * 60 * 24 * 10);
+++  }
+++  
+++  return $expiration;
++ }
+diff --git a/modules/ubercart/uc_roles/uc_roles.module b/modules/ubercart/uc_roles/uc_roles.module
+index 4db1454..613c067 100755
+--- a/modules/ubercart/uc_roles/uc_roles.module
++++ b/modules/ubercart/uc_roles/uc_roles.module
+@@ -60,7 +60,34 @@ function uc_roles_cron() {
+ 
+     // Remind the user about an upcoming expiration.
+     elseif ($reminder_granularity != 'never') {
+-      rules_invoke_event('uc_roles_notify_reminder', $account, $expiration);
++      	// Begin CGSI patch
++      	$reminders = variable_get('uc_roles_reminders', array()); 
++    	$rows = array();  
++    	if (count($reminders)) { 
++      		foreach ($reminders as $reminder) { 
++        		$granularity = variable_get('uc_roles_reminder_granularity:' . $reminder, NULL); 
++        		$qty = variable_get('uc_roles_reminder_length:' . $reminder, NULL); 
++			        if ($granularity && is_numeric($qty)) {
++			          $timestamp = strtotime('+' . $qty . ' ' . $granularity);
++			          // Add 10 days for grace period.
++			          $timestamp = $timestamp + (60 * 60 * 24 * 10);
++			          $results = db_query('SELECT * FROM {uc_roles_expirations} ue INNER JOIN {uc_roles_reminders} ur ON ur.uid = ue.uid WHERE ur.reminder = "%s" AND  ue.expiration < %d', $reminder, $timestamp);
++			          while ($row = db_fetch_object($results)) {
++			            $rows[] = $row;
++			          }
++			        }
++      			}
++      		}
++      		
++      		if (count($rows)) {
++      			foreach ($rows as $row) {
++      				$account = user_load($row->uid);
++      				rules_invoke_event('uc_roles_notify_reminder_' . $row->reminder, $account, $row); 
++      				db_query('DELETE FROM {uc_roles_reminders} WHERE uid = %d AND reminder = "%s"', $row->uid, $row->reminder);
++      			}
++      		}
++      		
++      	// End CGSI patch
+       db_update('uc_roles_expirations')
+         ->fields(array('notified' => 1))
+         ->condition('uid', $account->uid)
+@@ -337,7 +364,7 @@ function uc_roles_user_presave(&$edit, $account, $category) {
+           $qty = $value['qty'];
+           $qty *= $value['polarity'] == 'add' ? 1 : -1;
+ 
+-          uc_roles_renew($account, $rid, _uc_roles_get_expiration($qty, $value['granularity'], $value['expiration']));
++          uc_roles_renew($account, $rid, _uc_roles_get_expiration($qty, $value['granularity'], $value['expiration'], FALSE));
+         }
+       }
+     }
+@@ -887,6 +914,7 @@ function uc_roles_feature_settings($form, &$form_state) {
+     '#description' => t('Check if the role duration should be multiplied by the quantity purchased.'),
+     '#default_value' => variable_get('uc_roles_default_by_quantity', FALSE),
+   );
++  /* CGSI patch replaces $form['reminder'] with $form['reminders']
+   $form['reminder']['uc_roles_reminder_length'] = array(
+     '#type' => 'textfield',
+     '#title' => t('Time before reminder'),
+@@ -913,6 +941,67 @@ function uc_roles_feature_settings($form, &$form_state) {
+     '#prefix' => '<div class="expiration">',
+     '#suffix' => '</div>',
+   );
++   * 
++   */
++  $reminders = variable_get('uc_roles_reminders', array());
++  
++  $form['reminders'] = array(
++  		'#type' => 'fieldset',
++  		'#title' => t('Configure reminders'),
++  		'#description' => t('Each reminder configured below will show up as a conditional actions predicate and can be used to schedule sending of e-mails to remind users of an expiring role.'),
++  );
++  
++  foreach ($reminders as $reminder) {
++  	$form['reminders'][$reminder] = array(
++  			'#type' => 'fieldset',
++  			'#title' => $reminder,
++  	);
++  	$form['reminders'][$reminder]['uc_roles_reminder_length:' . $reminder] = array(
++  			'#type' => 'textfield',
++  			'#title' => t('Time before reminder'),
++  			'#default_value' => (variable_get('uc_roles_reminder_granularity:' . $reminder, 'never') == 'never') ? NULL : variable_get('uc_roles_reminder_length:' . $reminder, NULL),
++  			'#size' => 4,
++  			'#maxlength' => 4,
++  			'#prefix' => '<div class="expiration">',
++  			'#suffix' => '</div>',
++  	);
++  	$form['reminders'][$reminder]['uc_roles_reminder_granularity:' . $reminder] = array(
++  			'#type' => 'select',
++  			'#default_value' => variable_get('uc_roles_reminder_granularity:' . $reminder, 'never'),
++  			'#options' => array(
++  					'never' => t('never'),
++  					'day' => t('day(s)'),
++  					'week' => t('week(s)'),
++  					'month' => t('month(s)'),
++  					'year' => t('year(s)')
++  			),
++  			'#description' => t('The amount of time before a role expiration takes place that a customer is notified of its expiration.'),
++  			'#prefix' => '<div class="expiration">',
++  			'#suffix' => '</div>',
++  	);
++  	$form['reminders'][$reminder]['uc_roles_reminder_config:' . $reminder] = array(
++  			'#type' => 'markup',
++  			'#value' => l(t('Configure this reminder\'s conditions and actions'), 'admin/store/ca/uc_role_notify_reminder_' . $reminder . '/edit'),
++  	);
++  }
++  
++  $form['reminders']['new_reminder'] = array(
++  		'#type' => 'fieldset',
++  		'#title' => t('Add a new reminder'),
++  );
++  $form['reminders']['new_reminder']['new_reminder_name'] = array(
++  		'#type' => 'textfield',
++  		'#title' => t('Reminder name'),
++  		'#description' => t('This name must contain only lowercase letters, numbers, and underscores.'),
++  
++  );
++  $form['reminders']['new_reminder']['new_reminder_submit'] = array(
++  		'#type' => 'submit',
++  		'#value' => t('Add reminder'),
++  		'#submit' => array('uc_roles_add_reminder_submit'),
++  		'#validate' => array('uc_roles_add_reminder_validate'),
++  );
++  
+   $form['uc_roles_expiration_display'] = array(
+     '#type' => 'fieldset',
+     '#title' => t('Expiration display'),
+@@ -942,6 +1031,29 @@ function uc_roles_feature_settings($form, &$form_state) {
+     '#description' => t('The message, with its accompanying title, and the header displayed above all role expirations. In the <strong>Title</strong> & <strong>Message</strong> fields "!role_name" and "!date" will translate to the corresponding Drupal role name and role expiration date.'),
+   );
+   return $form;
++}
++
++//CGSI patch functions
++/**
++ * Validation callback for uc_roles_add_reminder submit button on
++ * uc_roles_feature_settings form.
++ */
++function uc_roles_add_reminder_validate($form, &$form_state) {
++	if (!preg_match('!^[a-z0-9_]+$!', $form_state['values']['new_reminder_name'])) {
++		form_set_error('new_reminder_name', t('The reminder name must contain only lowercase letters, numbers, and underscores.'));
++	}
++
++	$reminders = variable_get('uc_roles_reminders', array());
++	if (in_array($form_state['values']['new_reminder_name'], $reminders)) {
++		form_set_error('new_reminder_name', t('The reminder name %name is already in use.', array('%name' => $form_state['values']['new_reminder_name'])));
++	}
++}
++
++function uc_roles_add_reminder_submit($form, &$form_state) {
++	$reminders = variable_get('uc_roles_reminders', array());
++	$reminders[] = $form_state['values']['new_reminder_name'];
++	variable_set('uc_roles_reminders', $reminders);
++	drupal_set_message(t('New reminder %name created', array('%name' => $form_state['values']['new_reminder_name'])));
+ }
+ 
+ /**
+@@ -1043,6 +1155,31 @@ function uc_roles_delete($account, $rid = NULL, $silent = FALSE) {
+       )));
+     }
+   }
++  
++  // CGSI patch
++  $query = db_delete('uc_roles_reminders')
++    ->condition('uid', $account->uid);
++
++  if ($rid) {
++    $query->condition('rid', $rid);
++  }
++
++  // Echo the deletion only if something was actually deleted.
++  if ($query->execute() && !$silent) {
++    if ($user->uid == $account->uid) {
++      drupal_set_message(t('The reminder for your %role_name role has been deleted.', array('%role_name' => _uc_roles_get_name($rid))));
++    }
++    else {
++      drupal_set_message(t('The reminder for  %role_name role for the user !user has been deleted.', array(
++        '!user' => theme('username', array(
++          'account' => $account,
++          'name' => check_plain(format_username($account)),
++          'link_path' => 'user/' . $account->uid,
++        )),
++        '%role_name' => _uc_roles_get_name($rid),
++      )));
++    }
++  }
+ 
+   // Flush visible menu items, since our permissions could've changed.
+   _uc_roles_flush_menu_cache($account);
+@@ -1073,6 +1210,9 @@ function uc_roles_revoke(&$account, $rid, $silent = FALSE) {
+ 
+   // Remove our record of the expiration.
+   uc_roles_delete($account, $rid, $silent);
++  
++  // CGSI Patch: Notify other modules that the roles has been revoked.
++  module_invoke_all('uc_roles_revoke', $account, $rid);
+ 
+   $role_name = db_query("SELECT name FROM {role} WHERE rid = :rid", array(':rid' => $rid))->fetchField();
+ 
+@@ -1130,6 +1270,17 @@ function uc_roles_grant(&$account, $rid, $timestamp, $save_user = TRUE, $silent
+ 
+   // If the role expires, keep a record.
+   if (!is_null($timestamp)) {
++  	// Begin CGSI patch
++  	   // Does the user already have the role?
++  	   $existing_role = db_fetch_object(db_query("SELECT * FROM {uc_roles_expirations} WHERE uid = %d AND rid = %d", $account->uid, $role->rid));
++  	   if ($existing_role->expiration) {
++  	      module_invoke_all('uc_roles_renew', $account, $rid, $timestamp, $existing_role->expiration);
++  		    }
++  		    else {
++  			     module_invoke_all('uc_roles_new', $account, $rid, $timestamp);
++  			    }
++  	// End CGSI patch
++  	
+     db_insert('uc_roles_expirations')
+       ->fields(array(
+         'uid' => $account->uid,
+@@ -1137,6 +1288,9 @@ function uc_roles_grant(&$account, $rid, $timestamp, $save_user = TRUE, $silent
+         'expiration' => $timestamp,
+       ))
+       ->execute();
++    
++    // CGSI patch
++    uc_roles_queue_reminders($account, $rid);
+   }
+ 
+   // Flush visible menu items, since our permissions could've changed.
+@@ -1196,6 +1350,9 @@ function uc_roles_renew($account, $rid, $timestamp, $silent = FALSE) {
+ 
+     return;
+   }
++  
++  // CGSI patch
++  $existing_role = db_query("SELECT * FROM {uc_roles_expirations} WHERE uid = %d AND rid = %d", $account->uid, $rid)->fetchField();
+ 
+   // Update the expiration date and reset the notified flag.
+   db_update('uc_roles_expirations')
+@@ -1206,6 +1363,11 @@ function uc_roles_renew($account, $rid, $timestamp, $silent = FALSE) {
+     ->condition('uid', $account->uid)
+     ->condition('rid', $rid)
+     ->execute();
++  
++  // CGSI patch
++  uc_roles_queue_reminders($account, $rid);
++  // CGSI patch : Allow other modules to act on role renewal.
++  module_invoke_all('uc_roles_renew', $account, $rid, $timestamp, $existing_role->expiration);
+ 
+   if (!$silent) {
+     $role_name = db_query("SELECT name FROM {role} WHERE rid = :rid", array(':rid' => $rid))->fetchField();
+@@ -1228,6 +1390,22 @@ function uc_roles_renew($account, $rid, $timestamp, $silent = FALSE) {
+   }
+ }
+ 
++/** CSGI Patch
++ + * Queue all reminders when granting/renewing a role.
++ + *
++ + * @param $account
++ + *   A Drupal user object.
++ + * @param $rid
++ + *   ID of the role the $account should be reminded about.
++ + */
++function uc_roles_queue_reminders($account, $rid) {
++	 $reminders = variable_get('uc_roles_reminders', array());
++	  db_query('DELETE FROM {uc_roles_reminders} WHERE uid = %d AND rid = %d', $account->uid, $rid);
++	  foreach ($reminders as $reminder) {
++	    db_query('INSERT INTO {uc_roles_reminders} (uid, rid, reminder) VALUES (%d, %d, "%s")', $account->uid, $rid, $reminder);
++	  }
++	}
++		
+ /**
+  * Flushes the menu cache.
+  *
+@@ -1325,8 +1503,6 @@ function _uc_roles_get_expiration($duration, $granularity, $start_time = NULL, $
+ 	$expiration1_str = strftime("%D %r", $expiration);	
+ 
+ 	if ($adjustments) {
+-		// Subtract grace period to avoid adding extra month when rounding up
+-		//$expiration = $expiration - $grace;
+ 		// Round this up to the end of the month.
+ 		// 10th day of the next month at 11:59 PM.
+ 		$expiration = mktime(23, 59, 0,$month_offset+date('m', $expiration), 10, date('Y', $expiration));
+diff --git a/modules/ubercart/uc_roles/uc_roles.rules.inc b/modules/ubercart/uc_roles/uc_roles.rules.inc
+index 3fb39a9..20f4e6c 100755
+--- a/modules/ubercart/uc_roles/uc_roles.rules.inc
++++ b/modules/ubercart/uc_roles/uc_roles.rules.inc
+@@ -213,16 +213,19 @@ function uc_roles_rules_event_info() {
+       'order' => $order,
+       'expiration' => $expiration,
+     ),
+-  );
+-
+-  $events['uc_roles_notify_reminder'] = array(
+-    'label' => t('E-mail for role expiration reminders'),
++  );
++  
++  $reminders = variable_get('uc_roles_reminders', array()); // CGSI patch:  wrap with a loop for each CGSI $reminder
++  foreach ($reminders as $reminder) {// CGSI patch:  wrap with a loop for each CGSI $reminder
++  $events['uc_roles_notify_reminder' . $reminder] = array(
++    'label' => t('E-mail for role expiration reminders (@name)', array('@name' => $reminder)),
+     'group' => t('Notification'),
+     'variables' => array(
+       'account' => $account,
+       'expiration' => $expiration,
+     ),
+   );
++  }// CGSI patch:  wrap with a loop for each CGSI $reminder
+ 
+   return $events;
+ }
+diff --git a/themes/cgsi/template.php b/themes/cgsi/template.php
+index e0290b9..d1fe05c 100755
+--- a/themes/cgsi/template.php
++++ b/themes/cgsi/template.php
+@@ -485,48 +485,49 @@ function cgsi_menu_item_link($link) {
+  * Theme the role expiration table within the roles dialog on the account edit page.
+  *
+  * @ingroup themeable
+- */
+-function cgsi_uc_roles_user_expiration($form) {
+-	$output = '';
+-
+-	$header = array(
+-			array('data' => t('Make permanent')),
+-			array('data' => t('Role'     )),
+-			array('data' => t('Expiration'  )),
+-			array('data' => t('Add/remove time')),
+-	);
+-
+-	// The expiration table.
+-	foreach ((array)$form['table'] as $rid => $expiration) {
+-		// We only want numeric rid's
+-		if (!is_numeric($rid)) {
+-			continue;
+-		}
+-
+-		// Make sure the renders actually touch the elements.
+-		$data = &$form['table'][$rid];
+-
+-		$rows[] = array(
+-				array('data' => drupal_render($data['remove'])),
+-				array('data' => $data['name']['#value']),
+-				array('data' => date('m/d/Y H:i', $data['expiration']['#value'])),
+-
+-				// Options to adjust the expiration.
+-				array('data' => '<a name="role-expiration-'. $rid .'">'.
+-						'<div class="expiration">'.
+-						drupal_render($data['polarity']) . drupal_render($data['qty']) . drupal_render($data['granularity']) .
+-						'</div>'),
+-		);
+-	}
+-
+-	if (!count($rows)) {
+-		$rows[] = array(
+-				array('data' => t('There are no pending expirations for roles this user.'), 'colspan' => 4),
+-		);
+-	}
+-
+-	$output .= theme('table', $header, $rows, array(), t('Below you can add or remove time to the expiration dates of the following roles.'));
+-	$output .= drupal_render($form);
++ */
+ 
+-	return $output;
++function cgsi_uc_roles_user_expiration($variables) {
++	$form = $variables['form'];
++  $header = array(
++    array('data' => t('Make permanent')),
++    array('data' => t('Role'     )),
++    array('data' => t('Expiration'  )),
++    array('data' => t('Add/remove time')),
++  );
++
++  // The expiration table.
++  foreach ((array)$form['table'] as $rid => $expiration) {
++    // We only want numeric rid's
++    if (!is_numeric($rid)) {
++      continue;
++    }
++
++    // Make sure the renders actually touch the elements.
++    $data = $form['table'][$rid];
++
++    $rows[] = array(
++      array('data' => drupal_render($data['remove'])),
++      array('data' => $data['name']['#value']),
++      array('data' => date('m/d/Y H:i', $data['expiration']['#value'])),
++
++      // Options to adjust the expiration.
++      array('data' => '<a name="role-expiration-'. $rid .'">'.
++                      '<div class="expiration">'.
++                        drupal_render($data['polarity']) . drupal_render($data['qty']) . drupal_render($data['granularity']) .
++                      '</div>'),
++    );
++  }
++  
++  $table = array('#type' => 'table'
++  		, '#theme' => 'table'
++  		, '#header' => $header
++  		, '#rows' => $rows,
++  		//'attributes' => array('id' => 'user_expirations'),
++  		'#empty' => t('There are no pending expirations for this user.')
++  );
++  
++  $output = drupal_render($table);
++  
++  return $output;
+ }
+diff --git a/themes/cgsi/templates/node--church_record.tpl.php b/themes/cgsi/templates/node--church_record.tpl.php
+index c923442..fba8e2e 100644
+--- a/themes/cgsi/templates/node--church_record.tpl.php
++++ b/themes/cgsi/templates/node--church_record.tpl.php
+@@ -85,7 +85,7 @@
+     }
+     ?>
+     <?php print t("<strong>Surname:</strong> @value - from Archdiocese of St Paul MN Church Records<br/>", array('@value' => $node->title)); ?>
+-    <?php print cgsi_render_field("Record Type",$node->field_cr_given_name); ?>
++    <?php print cgsi_render_field("Surname",$node->field_cr_given_name); ?>
+     <?php print cgsi_render_field("Record Type",$node->field_cr_record_type); ?>
+     <?php print cgsi_render_field("Record Day",$node->field_cr_record_day); ?>
+     <?php print cgsi_render_field("Record Month",$node->field_cr_record_month); ?>
+@@ -93,12 +93,12 @@
+     <?php print cgsi_render_field("Birth Day",$node->field_cr_birth_day); ?>
+     <?php print cgsi_render_field("Birth Month",$node->field_cr_birth_month); ?>
+     <?php print cgsi_render_field("Birth Year",$node->field_cr_birth_year); ?>
+-    <?php print cgsi_render_field("Record Month",$node->field_cr_church_name); ?>
+-    <?php print cgsi_render_field("Record Year",$node->field_cr_city); ?>  
+-    <?php print cgsi_render_field("Birth Day",$node->field_cr_vol); ?>
+-    <?php print cgsi_render_field("Birth Month",$node->field_cr_spouse_surname); ?>
+-    <?php print cgsi_render_field("Birth Year",$node->field_cr_spouse_given_name); ?>
+-    <?php print cgsi_render_field("Birth Year",$node->field_cr_notes); ?>
++    <?php print cgsi_render_field("Church Name",$node->field_cr_church_name); ?>
++    <?php print cgsi_render_field("Church Town/City",$node->field_cr_city); ?>  
++    <?php print cgsi_render_field("Roll Volume/Page",$node->field_cr_vol); ?>
++    <?php print cgsi_render_field("Spouse Surname",$node->field_cr_spouse_surname); ?>
++    <?php print cgsi_render_field("Spouse Given Name",$node->field_cr_spouse_given_name); ?>
++    <?php print cgsi_render_field("Notes",$node->field_cr_notes); ?>
+   </div>
+ 
+   <?php print $links; ?>
+diff --git a/themes/cgsi/templates/user-profile-category.tpl.php b/themes/cgsi/templates/user-profile-category.tpl.php
+new file mode 100644
+index 0000000..96ac8e4
+--- /dev/null
++++ b/themes/cgsi/templates/user-profile-category.tpl.php
+@@ -0,0 +1,34 @@
++<?php
++// $Id: user-profile-category.tpl.php,v 1.2 2007/08/07 08:39:36 goba Exp $
++
++/**
++ * @file user-profile-category.tpl.php
++ * Default theme implementation to present profile categories (groups of
++ * profile items).
++ *
++ * Categories are defined when configuring user profile fields for the site.
++ * It can also be defined by modules. All profile items for a category will be
++ * output through the $profile_items variable.
++ *
++ * @see user-profile-item.tpl.php
++ *      where each profile item is rendered. It is implemented as a definition
++ *      list by default.
++ * @see user-profile.tpl.php
++ *      where all items and categories are collected and printed out.
++ *
++ * Available variables:
++ * - $title: Category title for the group of items.
++ * - $profile_items: All the items for the group rendered through
++ *   user-profile-item.tpl.php.
++ * - $attributes: HTML attributes. Usually renders classes.
++ *
++ * @see template_preprocess_user_profile_category()
++ */
++?>
++<?php if ($title) : ?>
++  <h3><?php print $title; ?></h3>
++<?php endif; ?>
++
++<table <?php print $attributes; ?>>
++  <?php print $profile_items; ?>
++</table>
+diff --git a/themes/cgsi/templates/user-profile-item.tpl.php b/themes/cgsi/templates/user-profile-item.tpl.php
+new file mode 100644
+index 0000000..6f8861c
+--- /dev/null
++++ b/themes/cgsi/templates/user-profile-item.tpl.php
+@@ -0,0 +1,29 @@
++<?php
++// $Id: user-profile-item.tpl.php,v 1.2 2007/08/07 08:39:36 goba Exp $
++
++/**
++ * @file user-profile-item.tpl.php
++ * Default theme implementation to present profile items (values from user
++ * account profile fields or modules).
++ *
++ * This template is used to loop through and render each field configured
++ * for the user's account. It can also be the data from modules. The output is
++ * grouped by categories.
++ *
++ * @see user-profile-category.tpl.php
++ *      for the parent markup. Implemented as a definition list by default.
++ * @see user-profile.tpl.php
++ *      where all items and categories are collected and printed out.
++ *
++ * Available variables:
++ * - $title: Field title for the profile item.
++ * - $value: User defined value for the profile item or data from a module.
++ * - $attributes: HTML attributes. Usually renders classes.
++ *
++ * @see template_preprocess_user_profile_item()
++ */
++?>
++<tr>
++<td class="profile-left"><?php print $title; ?>:</td>
++<td class="profile-right"><?php print $value; ?></td>
++</tr>
+diff --git a/themes/cgsi/templates/user-profile.tpl.php b/themes/cgsi/templates/user-profile.tpl.php
+new file mode 100644
+index 0000000..11e2429
+--- /dev/null
++++ b/themes/cgsi/templates/user-profile.tpl.php
+@@ -0,0 +1,40 @@
++<?php
++
++/**
++ * @file
++ * Default theme implementation to present all user profile data.
++ *
++ * This template is used when viewing a registered member's profile page,
++ * e.g., example.com/user/123. 123 being the users ID.
++ *
++ * Use render($user_profile) to print all profile items, or print a subset
++ * such as render($user_profile['user_picture']). Always call
++ * render($user_profile) at the end in order to print all remaining items. If
++ * the item is a category, it will contain all its profile items. By default,
++ * $user_profile['summary'] is provided, which contains data on the user's
++ * history. Other data can be included by modules. $user_profile['user_picture']
++ * is available for showing the account picture.
++ *
++ * Available variables:
++ *   - $user_profile: An array of profile items. Use render() to print them.
++ *   - Field variables: for each field instance attached to the user a
++ *     corresponding variable is defined; e.g., $account->field_example has a
++ *     variable $field_example defined. When needing to access a field's raw
++ *     values, developers/themers are strongly encouraged to use these
++ *     variables. Otherwise they will have to explicitly specify the desired
++ *     field language, e.g. $account->field_example['en'], thus overriding any
++ *     language negotiation rule that was previously applied.
++ *
++ * @see user-profile-category.tpl.php
++ *   Where the html is handled for the group.
++ * @see user-profile-item.tpl.php
++ *   Where the html is handled for each item in the group.
++ * @see template_preprocess_user_profile()
++ *
++ * @ingroup themeable
++ */
++?>
++<div class="profile"<?php print $attributes; ?>>
++  <?php print render($user_profile['Member Information']); ?>
++  <?php print $add_edit_surnames_link; ?>
++</div>
